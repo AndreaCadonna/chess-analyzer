@@ -1,0 +1,19 @@
+{
+  "name": "chess-analyzer",
+  "version": "1.0.0",
+  "description": "Chess game analysis platform",
+  "scripts": {
+    "dev": "docker-compose up",
+    "dev:build": "docker-compose up --build",
+    "down": "docker-compose down",
+    "setup": "npm run setup:backend && npm run setup:frontend",
+    "setup:backend": "cd backend && npm install",
+    "setup:frontend": "cd frontend && npm install",
+    "db:migrate": "cd backend && npx prisma migrate dev",
+    "db:studio": "cd backend && npx prisma studio",
+    "test": "cd backend && npm test"
+  },
+  "keywords": ["chess", "analysis", "react", "node.js"],
+  "author": "Your Name",
+  "license": "MIT"
+}

@@ -5,7 +5,6 @@ const router = Router();
 const prisma = new PrismaClient();
 
 router.get('/', async (req: Request, res: Response) => {
-  console.log('🔍 NEW Health check called!');
   try {
     // Test database connection with a simple query
     await prisma.$queryRaw`SELECT 1`;
@@ -23,7 +22,7 @@ router.get('/', async (req: Request, res: Response) => {
         database: 'connected',
         docker: 'running'
       },
-      database: {
+      database: { 
         tables: ['users', 'games', 'analysis'],
         counts: {
           users: userCount,

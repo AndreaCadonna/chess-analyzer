@@ -45,7 +45,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: npm run dev
+    # Add Prisma initialization before starting the app
+    command: ["sh", "-c", "npx prisma generate && npx prisma db push && npm run dev"]
 
   frontend:
     build:

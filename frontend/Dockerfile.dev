@@ -1,12 +1,25 @@
 FROM node:18-alpine
 
+# Install necessary packages for file watching
+RUN apk add --no-cache bash
+
 WORKDIR /app
 
+# Copy package files first for better Docker layer caching
 COPY package*.json ./
+
+# Install dependencies
 RUN npm install
 
+# Copy the rest of the application
 COPY . .
 
+# Expose the port
 EXPOSE 3000
 
-CMD ["npm", "run", "dev"]
+# Set environment variables for better development experience
+ENV CHOKIDAR_USEPOLLING=true
+ENV VITE_HOST=0.0.0.0
+
+# Start the development server
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

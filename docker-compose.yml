@@ -45,8 +45,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # Add Prisma initialization before starting the app
-    command: ["sh", "-c", "npx prisma generate && npx prisma db push && npm run dev"]
+    command:
+      ["sh", "-c", "npx prisma generate && npx prisma db push && npm run dev"]
 
   frontend:
     build:
@@ -59,9 +59,12 @@ services:
       - /app/node_modules
     environment:
       - VITE_API_URL=http://localhost:3001/api
+      - CHOKIDAR_USEPOLLING=true # Enable polling for file watching
     depends_on:
       - backend
-    command: npm run dev
+    command: npm run dev -- --host 0.0.0.0 # Bind to all interfaces
+    stdin_open: true # Keep STDIN open (for interactive mode)
+    tty: true # Allocate a pseudo-TTY
 
 volumes:
   postgres_data:

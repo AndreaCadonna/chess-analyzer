@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import {
   getUser,
@@ -9,6 +9,7 @@ import {
 import type { User, ImportResult } from "../types/api";
 
 interface ImportHistory {
+  totalGames: number;
   lastImport?: string;
   recentGames?: Array<{
     id: string;
@@ -17,6 +18,11 @@ interface ImportHistory {
     result: string;
     playedAt: string;
   }>;
+  user: {
+    id: string;
+    chessComUsername: string;
+    gameCount: number;
+  };
 }
 
 const ImportPage: React.FC = () => {
@@ -49,23 +55,53 @@ const ImportPage: React.FC = () => {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   const loadUserData = useCallback(async () => {
+    if (!userId) {
+      setError("No user ID provided");
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
-      const [userData, historyData] = await Promise.all([
-        getUser(userId!),
-        getImportHistory(userId!),
-      ]);
+      console.log("Loading user data for userId:", userId);
 
+      // Load user data first
+      const userData = await getUser(userId);
+      console.log("User data loaded:", userData);
       setUser(userData);
-      setImportHistory(historyData);
+
+      // Then try to load import history
+      try {
+        const historyData = await getImportHistory(userId);
+        console.log("Import history loaded:", historyData);
+        setImportHistory(historyData);
+      } catch (historyError) {
+        console.warn("Failed to load import history:", historyError);
+        // Don't fail the whole page if import history fails
+        // Set a default empty history
+        setImportHistory({
+          totalGames: 0,
+          recentGames: [],
+          user: {
+            id: userData.id,
+            chessComUsername: userData.chessComUsername,
+            gameCount: userData.gameCount || 0,
+          },
+        });
+      }
     } catch (err) {
+      console.error("Error loading user data:", err);
       setError(err instanceof Error ? err.message : "Failed to load user data");
     } finally {
       setLoading(false);
     }
   }, [userId]);
+
+  useEffect(() => {
+    loadUserData();
+  }, [loadUserData]);
 
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,8 +146,11 @@ const ImportPage: React.FC = () => {
         }
       }
 
+      console.log("Starting import with options:", options);
+
       // Start import
       const result = await importUserGames(userId!, options);
+      console.log("Import completed:", result);
 
       setImportResult(result.importResult);
       setSuccess(
@@ -131,6 +170,7 @@ const ImportPage: React.FC = () => {
       // Reload user data to get updated game count
       await loadUserData();
     } catch (err) {
+      console.error("Import error:", err);
       const errorMessage = err instanceof Error ? err.message : "Import failed";
       setError(errorMessage);
       setImportProgress({
@@ -163,6 +203,18 @@ const ImportPage: React.FC = () => {
     );
   }
 
+  if (error && !user) {
+    return (
+      <div className="import-page">
+        <div className="error">
+          <h2>Error</h2>
+          <p>{error}</p>
+          <p>User ID: {userId}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="import-page">
@@ -182,7 +234,9 @@ const ImportPage: React.FC = () => {
       <div className="user-stats">
         <div className="stat">
           <span className="stat-label">Total Games:</span>
-          <span className="stat-value">{user.gameCount}</span>
+          <span className="stat-value">
+            {importHistory?.totalGames || user.gameCount || 0}
+          </span>
         </div>
         {importHistory?.lastImport && (
           <div className="stat">
@@ -211,6 +265,17 @@ const ImportPage: React.FC = () => {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Show message if no games yet */}
+      {importHistory && importHistory.totalGames === 0 && (
+        <div className="no-games-message">
+          <h3>No games imported yet</h3>
+          <p>
+            This user hasn't imported any games. Use the form below to start
+            importing games from Chess.com.
+          </p>
         </div>
       )}
 
@@ -360,6 +425,318 @@ const ImportPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      <style>{`
+        .import-page {
+          max-width: 800px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+
+        .import-header {
+          text-align: center;
+          margin-bottom: 30px;
+        }
+
+        .import-header h1 {
+          margin: 0 0 10px 0;
+          color: #333;
+        }
+
+        .import-header p {
+          color: #666;
+          margin: 0;
+        }
+
+        .user-stats {
+          display: flex;
+          gap: 30px;
+          justify-content: center;
+          margin-bottom: 30px;
+          padding: 20px;
+          background: #f8f9fa;
+          border-radius: 8px;
+        }
+
+        .stat {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .stat-label {
+          font-size: 0.9em;
+          color: #666;
+          margin-bottom: 5px;
+        }
+
+        .stat-value {
+          font-size: 1.5em;
+          font-weight: bold;
+          color: #333;
+        }
+
+        .recent-games {
+          margin-bottom: 30px;
+          padding: 20px;
+          background: #f8f9fa;
+          border-radius: 8px;
+        }
+
+        .recent-games h3 {
+          margin: 0 0 15px 0;
+          color: #333;
+        }
+
+        .games-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .game-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px;
+          background: white;
+          border-radius: 4px;
+          border: 1px solid #ddd;
+        }
+
+        .players {
+          font-weight: bold;
+          color: #333;
+        }
+
+        .result {
+          padding: 4px 8px;
+          border-radius: 4px;
+          background: #e3f2fd;
+          color: #1976d2;
+          font-size: 0.9em;
+        }
+
+        .date {
+          color: #666;
+          font-size: 0.9em;
+        }
+
+        .no-games-message {
+          text-align: center;
+          padding: 30px;
+          background: #f8f9fa;
+          border-radius: 8px;
+          margin-bottom: 30px;
+        }
+
+        .no-games-message h3 {
+          margin: 0 0 10px 0;
+          color: #333;
+        }
+
+        .no-games-message p {
+          color: #666;
+          margin: 0;
+        }
+
+        .import-section {
+          background: #f8f9fa;
+          padding: 30px;
+          border-radius: 8px;
+        }
+
+        .import-section h2 {
+          margin: 0 0 20px 0;
+          color: #333;
+        }
+
+        .import-form {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .form-group {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .form-group label {
+          margin-bottom: 5px;
+          font-weight: bold;
+          color: #333;
+        }
+
+        .form-group input {
+          padding: 10px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          font-size: 1em;
+        }
+
+        .form-group input:disabled {
+          background: #f5f5f5;
+          color: #999;
+        }
+
+        .form-group small {
+          margin-top: 5px;
+          color: #666;
+          font-size: 0.9em;
+        }
+
+        .form-actions {
+          display: flex;
+          gap: 10px;
+        }
+
+        .import-button,
+        .reset-button {
+          padding: 12px 24px;
+          border: none;
+          border-radius: 4px;
+          font-size: 1em;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+
+        .import-button.primary {
+          background: #007bff;
+          color: white;
+        }
+
+        .import-button.primary:hover:not(:disabled) {
+          background: #0056b3;
+        }
+
+        .reset-button.secondary {
+          background: #6c757d;
+          color: white;
+        }
+
+        .reset-button.secondary:hover:not(:disabled) {
+          background: #545b62;
+        }
+
+        .import-button:disabled,
+        .reset-button:disabled {
+          background: #ccc;
+          cursor: not-allowed;
+        }
+
+        .import-progress {
+          margin-top: 20px;
+        }
+
+        .progress-bar {
+          width: 100%;
+          height: 20px;
+          background: #e9ecef;
+          border-radius: 10px;
+          overflow: hidden;
+        }
+
+        .progress-fill {
+          height: 100%;
+          background: #007bff;
+          transition: width 0.3s ease;
+        }
+
+        .progress-text {
+          margin-top: 10px;
+          text-align: center;
+          color: #333;
+        }
+
+        .alert {
+          padding: 15px;
+          margin-top: 20px;
+          border-radius: 4px;
+        }
+
+        .alert.error {
+          background: #f8d7da;
+          color: #721c24;
+          border: 1px solid #f5c6cb;
+        }
+
+        .alert.success {
+          background: #d4edda;
+          color: #155724;
+          border: 1px solid #c3e6cb;
+        }
+
+        .import-results {
+          margin-top: 20px;
+          padding: 20px;
+          background: white;
+          border-radius: 4px;
+          border: 1px solid #ddd;
+        }
+
+        .import-results h3 {
+          margin: 0 0 15px 0;
+          color: #333;
+        }
+
+        .results-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 15px;
+        }
+
+        .result-item {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 10px;
+          background: #f8f9fa;
+          border-radius: 4px;
+        }
+
+        .result-label {
+          font-size: 0.9em;
+          color: #666;
+          margin-bottom: 5px;
+        }
+
+        .result-value {
+          font-size: 1.2em;
+          font-weight: bold;
+          color: #333;
+        }
+
+        .import-errors {
+          margin-top: 15px;
+        }
+
+        .import-errors h4 {
+          margin: 0 0 10px 0;
+          color: #dc3545;
+        }
+
+        .import-errors ul {
+          margin: 0;
+          padding-left: 20px;
+        }
+
+        .import-errors li {
+          color: #dc3545;
+          margin-bottom: 5px;
+        }
+
+        .loading,
+        .error {
+          text-align: center;
+          padding: 40px;
+        }
+
+        .error h2 {
+          color: #dc3545;
+          margin-bottom: 10px;
+        }
+      `}</style>
     </div>
   );
 };

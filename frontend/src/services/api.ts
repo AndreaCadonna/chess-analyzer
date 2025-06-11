@@ -1,4 +1,4 @@
-// frontend/src/services/api.ts - Enhanced version
+// frontend/src/services/api.ts - Enhanced version with better logging
 import axios from "axios";
 
 import type { User } from "../types/api";
@@ -97,6 +97,19 @@ export const getChessComPlayerProfile = async (username: string) => {
 
 // ===== GAME MANAGEMENT =====
 
+// Define the expected backend response structure
+interface GetUserGamesResponse {
+  games: Game[];
+  total: number;
+  hasMore: boolean;
+  pagination?: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+}
+
 export const getUserGames = async (
   userId: string,
   limit = 20,
@@ -110,15 +123,82 @@ export const getUserGames = async (
     hasMore: boolean;
   };
 }> => {
-  const response = await api.get<ApiResponse<Game[]>>(
+  console.log(
+    `Making API call: GET /games/user/${userId}?limit=${limit}&offset=${offset}`
+  );
+
+  const response = await api.get<ApiResponse<GetUserGamesResponse>>(
     `/games/user/${userId}?limit=${limit}&offset=${offset}`
   );
-  if (!response.data.success || !response.data.data) {
+
+  console.log("Raw API response:", response.data);
+
+  if (!response.data.success) {
     throw new Error(response.data.message || "Failed to fetch games");
   }
+
+  // Check if the response has the expected structure
+  const data = response.data.data;
+  console.log("Response data structure:", data);
+
+  // Handle different possible response structures
+  let games: Game[];
+  let pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+
+  if (data && typeof data === "object") {
+    // If data has games property (from your backend structure)
+    if (data.games && Array.isArray(data.games)) {
+      games = data.games;
+      pagination = data.pagination ||
+        response.data.pagination || {
+          limit,
+          offset,
+          total: data.total || 0,
+          hasMore: data.hasMore || false,
+        };
+    }
+    // If data is directly an array
+    else if (Array.isArray(data)) {
+      games = data;
+      pagination = response.data.pagination || {
+        limit,
+        offset,
+        total: data.length,
+        hasMore: false,
+      };
+    }
+    // If it's some other structure, try to extract games
+    else {
+      console.error("Unexpected data structure:", data);
+      games = [];
+      pagination = {
+        limit,
+        offset,
+        total: 0,
+        hasMore: false,
+      };
+    }
+  } else {
+    games = [];
+    pagination = {
+      limit,
+      offset,
+      total: 0,
+      hasMore: false,
+    };
+  }
+
+  console.log("Processed games:", games);
+  console.log("Processed pagination:", pagination);
+
   return {
-    games: response.data.data,
-    pagination: response.data.pagination!,
+    games,
+    pagination,
   };
 };
 
@@ -166,6 +246,7 @@ export const getImportHistory = async (userId: string) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    console.error("API Error:", error);
     if (error.response?.data?.message) {
       throw new Error(error.response.data.message);
     }

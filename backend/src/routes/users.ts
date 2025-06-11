@@ -1,4 +1,4 @@
-import { Router, RequestHandler } from "express";
+import { Router } from "express";
 import {
   createUser,
   getUser,
@@ -10,10 +10,10 @@ import {
 const router = Router();
 
 // User CRUD routes
-router.post("/", createUser as RequestHandler);
-router.get("/", getAllUsers as RequestHandler);
-router.get("/:userId", getUser as RequestHandler);
-router.put("/:userId", updateUser as RequestHandler);
-router.delete("/:userId", deleteUser as RequestHandler);
+router.post("/", createUser);
+router.get("/", getAllUsers);
+router.get("/:userId", getUser);
+router.put("/:userId", updateUser);
+router.delete("/:userId", deleteUser);
 
 export default router;

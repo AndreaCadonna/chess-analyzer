@@ -274,6 +274,29 @@ export class GameService {
     });
   }
 
+  async getUserGameCount(userId: string): Promise<number> {
+    return await prisma.game.count({
+      where: { userId },
+    });
+  }
+
+  async getGameById(gameId: string) {
+    return await prisma.game.findUnique({
+      where: { id: gameId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            chessComUsername: true,
+          },
+        },
+        analysis: {
+          orderBy: { moveNumber: "asc" },
+        },
+      },
+    });
+  }
+
   async deleteGame(gameId: string): Promise<void> {
     const game = await prisma.game.findUnique({
       where: { id: gameId },
@@ -283,8 +306,53 @@ export class GameService {
       throw new Error("Game not found");
     }
 
+    // This will cascade delete all related analysis records
     await prisma.game.delete({
       where: { id: gameId },
     });
+  }
+
+  async getGamesByTimeControl(userId: string, timeControl: string, limit = 20) {
+    return await prisma.game.findMany({
+      where: {
+        userId,
+        timeControl: {
+          contains: timeControl,
+          mode: "insensitive",
+        },
+      },
+      orderBy: { playedAt: "desc" },
+      take: limit,
+    });
+  }
+
+  async getGamesByResult(userId: string, result: string, limit = 20) {
+    return await prisma.game.findMany({
+      where: {
+        userId,
+        result,
+      },
+      orderBy: { playedAt: "desc" },
+      take: limit,
+    });
+  }
+
+  async getUserGameStats(userId: string) {
+    const [total, wins, losses, draws] = await Promise.all([
+      prisma.game.count({ where: { userId } }),
+      prisma.game.count({ where: { userId, result: "1-0" } }),
+      prisma.game.count({ where: { userId, result: "0-1" } }),
+      prisma.game.count({ where: { userId, result: "1/2-1/2" } }),
+    ]);
+
+    const winRate = total > 0 ? (wins / total) * 100 : 0;
+
+    return {
+      total,
+      wins,
+      losses,
+      draws,
+      winRate: Math.round(winRate * 100) / 100,
+    };
   }
 }

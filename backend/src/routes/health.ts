@@ -1,50 +1,33 @@
-import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { Router, Request, Response } from "express";
+import { prisma } from "../config/database";
 
 const router = Router();
-const prisma = new PrismaClient();
 
-router.get('/', async (req: Request, res: Response) => {
+router.get("/", async (req: Request, res: Response) => {
+  const health = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    services: {
+      api: "running",
+      database: "unknown",
+      redis: "unknown",
+    },
+  };
+
+  // Test database connection
   try {
-    // Test database connection with a simple query
     await prisma.$queryRaw`SELECT 1`;
-    
-    // Count tables to verify schema exists
-    const userCount = await prisma.user.count();
-    const gameCount = await prisma.game.count();
-    const analysisCount = await prisma.analysis.count();
-    
-    res.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      services: {
-        api: 'running',
-        database: 'connected',
-        docker: 'running'
-      },
-      database: { 
-        tables: ['users', 'games', 'analysis'],
-        counts: {
-          users: userCount,
-          games: gameCount,
-          analysis: analysisCount
-        }
-      }
-    });
+    health.services.database = "connected";
   } catch (error) {
-    console.error('Health check failed:', error);
-    
-    res.status(503).json({
-      status: 'unhealthy',
-      timestamp: new Date().toISOString(),
-      services: {
-        api: 'running',
-        database: 'disconnected',
-        docker: 'unknown'
-      },
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
+    health.services.database = "disconnected";
+    health.status = "degraded";
   }
+
+  // Test Redis connection (we'll add this later)
+  health.services.redis = "not implemented";
+
+  const statusCode = health.status === "healthy" ? 200 : 503;
+  res.status(statusCode).json(health);
 });
 
 export default router;

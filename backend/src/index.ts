@@ -4,7 +4,13 @@ import helmet from "helmet";
 import dotenv from "dotenv";
 import { errorHandler } from "./middleware/errorHandler";
 import { notFound } from "./middleware/notFound";
+import { connectDatabase } from "./config/database";
+
+// Import routes
 import healthRoutes from "./routes/health";
+import userRoutes from "./routes/users";
+import gameRoutes from "./routes/games";
+import chesscomRoutes from "./routes/chesscom";
 
 // Load environment variables
 dotenv.config();
@@ -18,8 +24,14 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Connect to database
+connectDatabase();
+
 // Routes
 app.use("/api/health", healthRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/games", gameRoutes);
+app.use("/api/chesscom", chesscomRoutes);
 
 // Error handling
 app.use(notFound);

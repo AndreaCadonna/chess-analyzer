@@ -37,6 +37,7 @@ services:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/chess_analyzer
       - REDIS_URL=redis://redis:6379
+      - STOCKFISH_PATH=/usr/games/stockfish  # Path to Stockfish in Ubuntu
     volumes:
       - ./backend:/app
       - /app/node_modules

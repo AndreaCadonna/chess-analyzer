@@ -1,12 +1,34 @@
-FROM node:18-alpine
+FROM node:18-slim
 
+# Update package list and install Stockfish from Ubuntu repositories
+RUN apt-get update && \
+    apt-get install -y stockfish && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Verify Stockfish installation
+RUN stockfish --help > /dev/null || echo "Stockfish installed successfully"
+
+# Set up working directory
 WORKDIR /app
 
+# Copy package files first for better Docker layer caching
 COPY package*.json ./
+
+# Install dependencies
 RUN npm install
 
+# Copy the rest of the application
 COPY . .
 
+# Create logs directory for application
+RUN mkdir -p logs
+
+# Expose the port
 EXPOSE 3001
 
+# Set environment variable for Stockfish path
+ENV STOCKFISH_PATH=/usr/games/stockfish
+
+# Start the development server
 CMD ["npm", "run", "dev"]

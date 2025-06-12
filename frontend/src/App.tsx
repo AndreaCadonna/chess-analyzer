@@ -6,6 +6,7 @@ import UserManagement from "./pages/UserManagement";
 import ImportPage from "./pages/ImportPage";
 import GamesList from "./pages/GamesList";
 import "./App.css";
+import GameAnalysisPage from "./pages/GameAnalysisPage";
 
 interface HealthStatus {
   status: string;
@@ -77,6 +78,7 @@ function App() {
             <Route path="/users" element={<UserManagement />} />
             <Route path="/import/:userId" element={<ImportPage />} />
             <Route path="/games/:userId" element={<GamesList />} />
+            <Route path="/analysis/:gameId" element={<GameAnalysisPage />} />
           </Routes>
         </main>
 

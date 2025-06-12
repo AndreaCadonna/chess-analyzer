@@ -1,10 +1,13 @@
+// frontend/src/pages/GamesList.tsx - Complete updated version with analysis functionality
 import React, { useState, useEffect, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { getUserGames, getUser, deleteGame } from "../services/api";
+import { getAnalysisStatus } from "../services/analysisApi"; // 🆕 New import
 import type { User, Game } from "../types/api";
 
 const GamesList: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
+  const navigate = useNavigate();
 
   const [user, setUser] = useState<User | null>(null);
   const [games, setGames] = useState<Game[]>([]);
@@ -12,11 +15,66 @@ const GamesList: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Analysis status tracking
+  const [analysisStatus, setAnalysisStatus] = useState<
+    Record<
+      string,
+      {
+        hasAnalysis: boolean;
+        isAnalyzing: boolean;
+      }
+    >
+  >({});
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [totalGames, setTotalGames] = useState(0);
   const gamesPerPage = 20;
+
+  // 🆕 Load analysis status for games
+  const loadAnalysisStatus = useCallback(async (gamesArray: Game[]) => {
+    const statusMap: Record<
+      string,
+      { hasAnalysis: boolean; isAnalyzing: boolean }
+    > = {};
+
+    try {
+      const statusPromises = gamesArray.map(async (game) => {
+        try {
+          const status = await getAnalysisStatus(game.id);
+          return {
+            gameId: game.id,
+            hasAnalysis: status.hasExistingAnalysis,
+            isAnalyzing: status.isAnalyzing,
+          };
+        } catch (error) {
+          console.warn(
+            `Failed to get analysis status for game ${game.id}:`,
+            error
+          );
+          return {
+            gameId: game.id,
+            hasAnalysis: false,
+            isAnalyzing: false,
+          };
+        }
+      });
+
+      const results = await Promise.all(statusPromises);
+
+      results.forEach((result) => {
+        statusMap[result.gameId] = {
+          hasAnalysis: result.hasAnalysis,
+          isAnalyzing: result.isAnalyzing,
+        };
+      });
+
+      setAnalysisStatus(statusMap);
+    } catch (error) {
+      console.error("Error loading analysis status:", error);
+    }
+  }, []);
 
   const loadUserAndGames = useCallback(async () => {
     if (!userId) {
@@ -30,9 +88,6 @@ const GamesList: React.FC = () => {
       setError(null);
 
       console.log("Loading user and games for userId:", userId);
-      console.log("Current page:", currentPage);
-      console.log("Games per page:", gamesPerPage);
-      console.log("Offset:", currentPage * gamesPerPage);
 
       // Load user data and games in parallel
       const [userData, gamesData] = await Promise.all([
@@ -52,23 +107,18 @@ const GamesList: React.FC = () => {
       setHasMore(gamesData.pagination?.hasMore || false);
       setTotalGames(gamesData.pagination?.total || 0);
 
-      console.log("Final state:");
-      console.log("- Games count:", gamesArray.length);
-      console.log("- Total games:", gamesData.pagination?.total || 0);
-      console.log("- Has more:", gamesData.pagination?.hasMore || false);
-      console.log("- Games array:", gamesArray);
+      // Load analysis status for each game 🆕
+      await loadAnalysisStatus(gamesArray);
     } catch (err) {
       console.error("Error loading user and games:", err);
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
-  }, [userId, currentPage, gamesPerPage]);
+  }, [userId, currentPage, gamesPerPage, loadAnalysisStatus]);
 
   useEffect(() => {
-    console.log("useEffect triggered, userId:", userId);
     if (!userId) return;
-
     loadUserAndGames();
   }, [userId, currentPage, loadUserAndGames]);
 
@@ -89,6 +139,11 @@ const GamesList: React.FC = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete game");
     }
+  };
+
+  // 🆕 Handle analyze button click
+  const handleAnalyzeGame = (gameId: string) => {
+    navigate(`/analysis/${gameId}`);
   };
 
   const getResultDisplay = (
@@ -125,8 +180,6 @@ const GamesList: React.FC = () => {
   };
 
   const formatTimeControl = (timeControl: string) => {
-    // Convert seconds to readable format
-    // e.g., "600" -> "10 min", "180+2" -> "3+2"
     if (timeControl.includes("+")) {
       const [base, increment] = timeControl.split("+");
       const baseMin = Math.floor(parseInt(base) / 60);
@@ -142,33 +195,10 @@ const GamesList: React.FC = () => {
     }
   };
 
-  // Debug render states
-  console.log("Render state:", {
-    loading,
-    user: !!user,
-    gamesCount: games.length,
-    error,
-    userId,
-    gamesIsArray: Array.isArray(games),
-  });
-
   if (loading && currentPage === 0) {
     return (
       <div className="games-list">
         <div className="loading">Loading games...</div>
-        <div
-          style={{
-            padding: "20px",
-            background: "#f0f0f0",
-            margin: "20px",
-            borderRadius: "8px",
-          }}
-        >
-          <h3>Debug Info</h3>
-          <p>User ID: {userId}</p>
-          <p>Loading: {loading ? "Yes" : "No"}</p>
-          <p>Current Page: {currentPage}</p>
-        </div>
       </div>
     );
   }
@@ -179,18 +209,6 @@ const GamesList: React.FC = () => {
         <div className="error">
           <h2>Error</h2>
           <p>{error}</p>
-          <div
-            style={{
-              padding: "20px",
-              background: "#f0f0f0",
-              margin: "20px",
-              borderRadius: "8px",
-            }}
-          >
-            <h3>Debug Info</h3>
-            <p>User ID: {userId}</p>
-            <p>Error: {error}</p>
-          </div>
         </div>
       </div>
     );
@@ -200,48 +218,12 @@ const GamesList: React.FC = () => {
     return (
       <div className="games-list">
         <div className="error">User not found</div>
-        <div
-          style={{
-            padding: "20px",
-            background: "#f0f0f0",
-            margin: "20px",
-            borderRadius: "8px",
-          }}
-        >
-          <h3>Debug Info</h3>
-          <p>User ID: {userId}</p>
-          <p>User object: {user ? "Found" : "Not found"}</p>
-          <p>Loading: {loading ? "Yes" : "No"}</p>
-        </div>
       </div>
     );
   }
 
   return (
     <div className="games-list">
-      {/* Debug Panel */}
-      <div
-        style={{
-          padding: "20px",
-          background: "#f0f0f0",
-          margin: "20px",
-          borderRadius: "8px",
-        }}
-      >
-        <h3>Debug Info</h3>
-        <p>User ID: {userId}</p>
-        <p>
-          User: {user.chessComUsername} (ID: {user.id})
-        </p>
-        <p>Games loaded: {games.length}</p>
-        <p>Games is array: {Array.isArray(games) ? "Yes" : "No"}</p>
-        <p>Total games: {totalGames}</p>
-        <p>Has more: {hasMore ? "Yes" : "No"}</p>
-        <p>Current page: {currentPage}</p>
-        <p>Loading: {loading ? "Yes" : "No"}</p>
-        <p>Error: {error || "None"}</p>
-      </div>
-
       <div className="page-header">
         <div className="header-main">
           <h1>Games for {user.chessComUsername}</h1>
@@ -274,16 +256,6 @@ const GamesList: React.FC = () => {
         <div className="empty-state">
           <h3>No games found</h3>
           <p>This user hasn't imported any games yet.</p>
-          <p>
-            <strong>Debug:</strong> Total games in database: {totalGames}
-          </p>
-          <p>
-            <strong>Debug:</strong> Games is array:{" "}
-            {Array.isArray(games) ? "Yes" : "No"}
-          </p>
-          <p>
-            <strong>Debug:</strong> Games value: {JSON.stringify(games)}
-          </p>
           <Link to={`/import/${user.id}`} className="primary-button">
             Import Games Now
           </Link>
@@ -299,6 +271,7 @@ const GamesList: React.FC = () => {
                   <th>Result</th>
                   <th>Time Control</th>
                   <th>Ratings</th>
+                  <th>Analysis</th> {/* 🆕 Updated header */}
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -321,6 +294,12 @@ const GamesList: React.FC = () => {
                     user.chessComUsername.toLowerCase()
                       ? game.blackRating
                       : game.whiteRating;
+
+                  // 🆕 Get analysis status for this game
+                  const gameAnalysisStatus = analysisStatus[game.id] || {
+                    hasAnalysis: false,
+                    isAnalyzing: false,
+                  };
 
                   return (
                     <tr key={game.id}>
@@ -378,6 +357,23 @@ const GamesList: React.FC = () => {
                         </div>
                       </td>
 
+                      {/* 🆕 Analysis Status Column */}
+                      <td className="analysis-cell">
+                        {gameAnalysisStatus.isAnalyzing ? (
+                          <span className="analysis-status analyzing">
+                            🔄 Analyzing...
+                          </span>
+                        ) : gameAnalysisStatus.hasAnalysis ? (
+                          <span className="analysis-status complete">
+                            ✅ Complete
+                          </span>
+                        ) : (
+                          <span className="analysis-status none">
+                            ⚪ Not analyzed
+                          </span>
+                        )}
+                      </td>
+
                       <td className="actions-cell">
                         <div className="action-buttons">
                           <button
@@ -390,14 +386,19 @@ const GamesList: React.FC = () => {
                             View
                           </button>
 
+                          {/* 🆕 Updated analyze button */}
                           <button
-                            className="action-button analyze"
-                            onClick={() => {
-                              // TODO: Implement analysis in Step 3
-                              alert("Game analysis coming in Step 3!");
-                            }}
+                            className={`action-button analyze ${
+                              gameAnalysisStatus.hasAnalysis ? "analyzed" : ""
+                            }`}
+                            onClick={() => handleAnalyzeGame(game.id)}
+                            disabled={gameAnalysisStatus.isAnalyzing}
                           >
-                            Analyze
+                            {gameAnalysisStatus.hasAnalysis
+                              ? "View Analysis"
+                              : gameAnalysisStatus.isAnalyzing
+                              ? "Analyzing..."
+                              : "Analyze"}
                           </button>
 
                           <button
@@ -451,7 +452,7 @@ const GamesList: React.FC = () => {
 
       <style>{`
         .games-list {
-          max-width: 1200px;
+          max-width: 1400px;
           margin: 0 auto;
           padding: 20px;
         }
@@ -465,6 +466,8 @@ const GamesList: React.FC = () => {
           justify-content: space-between;
           align-items: center;
           margin-bottom: 15px;
+          flex-wrap: wrap;
+          gap: 1rem;
         }
 
         .header-main h1 {
@@ -491,6 +494,7 @@ const GamesList: React.FC = () => {
           display: flex;
           gap: 20px;
           color: #666;
+          font-size: 0.875rem;
         }
 
         .stat {
@@ -533,17 +537,18 @@ const GamesList: React.FC = () => {
         }
 
         .games-table-container {
+          background: white;
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+          margin-bottom: 2rem;
           overflow-x: auto;
-          margin-bottom: 20px;
         }
 
         .games-table {
           width: 100%;
           border-collapse: collapse;
-          background: white;
-          border-radius: 8px;
-          overflow: hidden;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          min-width: 900px;
         }
 
         .games-table th,
@@ -551,6 +556,7 @@ const GamesList: React.FC = () => {
           padding: 12px;
           text-align: left;
           border-bottom: 1px solid #ddd;
+          vertical-align: top;
         }
 
         .games-table th {
@@ -575,6 +581,10 @@ const GamesList: React.FC = () => {
         .opponent-cell small {
           color: #666;
           font-size: 0.8em;
+        }
+
+        .result-cell {
+          text-align: center;
         }
 
         .result-cell.win .result-badge {
@@ -606,8 +616,13 @@ const GamesList: React.FC = () => {
           font-size: 0.8em;
         }
 
+        .time-control-cell {
+          text-align: center;
+          font-weight: 500;
+        }
+
         .ratings-cell {
-          font-size: 0.9em;
+          text-align: center;
         }
 
         .rating-pair {
@@ -617,17 +632,51 @@ const GamesList: React.FC = () => {
         }
 
         .user-rating {
+          font-weight: 500;
           color: #333;
         }
 
         .opponent-rating {
           color: #666;
+          font-size: 0.8em;
+        }
+
+        /* 🆕 Analysis status styling */
+        .analysis-cell {
+          text-align: center;
+        }
+
+        .analysis-status {
+          font-size: 0.8em;
+          padding: 2px 6px;
+          border-radius: 12px;
+          font-weight: 500;
+        }
+
+        .analysis-status.analyzing {
+          background: #fff3cd;
+          color: #856404;
+        }
+
+        .analysis-status.complete {
+          background: #d4edda;
+          color: #155724;
+        }
+
+        .analysis-status.none {
+          background: #f8f9fa;
+          color: #6c757d;
+        }
+
+        .actions-cell {
+          text-align: center;
         }
 
         .action-buttons {
           display: flex;
           gap: 5px;
           flex-wrap: wrap;
+          justify-content: center;
         }
 
         .action-button {
@@ -636,6 +685,7 @@ const GamesList: React.FC = () => {
           border-radius: 3px;
           cursor: pointer;
           font-size: 0.8em;
+          transition: all 0.2s;
         }
 
         .action-button.view {
@@ -648,13 +698,26 @@ const GamesList: React.FC = () => {
           color: white;
         }
 
+        /* 🆕 Special styling for analyzed games */
+        .action-button.analyze.analyzed {
+          background: #6f42c1;
+          color: white;
+        }
+
         .action-button.delete {
           background: #dc3545;
           color: white;
         }
 
-        .action-button:hover {
+        .action-button:hover:not(:disabled) {
           opacity: 0.8;
+          transform: translateY(-1px);
+        }
+
+        .action-button:disabled {
+          background: #6c757d;
+          cursor: not-allowed;
+          opacity: 0.6;
         }
 
         .pagination {
@@ -685,6 +748,7 @@ const GamesList: React.FC = () => {
 
         .pagination-info {
           color: #666;
+          font-weight: 500;
         }
 
         .loading-overlay {
@@ -707,6 +771,27 @@ const GamesList: React.FC = () => {
 
         .error h2 {
           margin-bottom: 10px;
+        }
+
+        @media (max-width: 768px) {
+          .games-list {
+            padding: 10px;
+          }
+
+          .header-main {
+            flex-direction: column;
+            text-align: center;
+          }
+
+          .action-buttons {
+            flex-direction: column;
+            gap: 3px;
+          }
+
+          .action-button {
+            font-size: 0.7em;
+            padding: 3px 6px;
+          }
         }
       `}</style>
     </div>

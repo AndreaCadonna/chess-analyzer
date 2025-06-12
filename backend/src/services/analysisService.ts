@@ -1,12 +1,12 @@
 import { Chess } from "chess.js";
 import { prisma } from "../config/database";
-import { StockfishService } from "./stockfishService";
+import { getStockfishService } from "./stockfishService";
 
 export interface AnalysisOptions {
   depth?: number;
   skipMoves?: number;
   skipOpeningMoves?: number;
-  maxPositions?: number; // Added this property
+  maxPositions?: number;
   onProgress?: (progress: AnalysisProgress) => void;
 }
 
@@ -50,14 +50,12 @@ export interface GameAnalysis {
 }
 
 export class AnalysisService {
-  private stockfish: StockfishService;
-  private analyzingGames: Set<string> = new Set(); // Track which games are being analyzed
+  private analyzingGames: Set<string> = new Set();
 
   constructor() {
-    this.stockfish = new StockfishService();
+    // Remove stockfish initialization from constructor to avoid circular dependencies
   }
 
-  // Add the isAnalyzing method that routes expect
   isAnalyzing(gameId: string): boolean {
     return this.analyzingGames.has(gameId);
   }
@@ -90,9 +88,16 @@ export class AnalysisService {
       console.log(`🎯 Starting analysis for game ${gameId}`);
       console.log(`📖 PGN Preview: ${game.pgn.substring(0, 200)}...`);
 
-      // Stockfish is already initialized (we can see "readyok" in logs)
-      // So let's skip the readiness check that's causing circular dependency issues
-      console.log(`🚀 Stockfish engine ready - proceeding with analysis`);
+      // Initialize Stockfish service
+      console.log(`🚀 Initializing Stockfish engine...`);
+      const stockfish = await getStockfishService();
+
+      // Verify engine is ready
+      if (!stockfish.isEngineReady()) {
+        throw new Error("Stockfish engine is not ready");
+      }
+
+      console.log(`✅ Stockfish engine ready - proceeding with analysis`);
 
       // Initialize chess engine and load the game
       const chess = new Chess();
@@ -122,13 +127,12 @@ export class AnalysisService {
 
       // Filter moves to analyze (skip opening moves)
       const movesToAnalyze = moveHistory.slice(actualSkipMoves);
-
       const finalMovesToAnalyze = maxPositions
         ? movesToAnalyze.slice(0, maxPositions)
         : movesToAnalyze;
 
       console.log(
-        `Analyzing ${movesToAnalyze.length} positions (skipped first ${actualSkipMoves} moves)`
+        `Analyzing ${finalMovesToAnalyze.length} positions (skipped first ${actualSkipMoves} moves)`
       );
 
       // Reset the chess position and replay moves step by step
@@ -163,6 +167,7 @@ export class AnalysisService {
           }
           continue;
         }
+
         const analysisIndex = i - actualSkipMoves;
 
         // Update progress
@@ -185,47 +190,37 @@ export class AnalysisService {
           // Get current position FEN BEFORE the move was played
           const currentFen = chess.fen();
 
-          // TEMPORARY WORKAROUND: Skip actual Stockfish analysis for now
-          // and create mock analysis results to test the rest of the pipeline
-          let analysis;
-          try {
-            console.log(
-              `🔍 Creating mock analysis for position: ${
-                currentFen.split(" ")[0]
-              }...`
-            );
+          // REAL STOCKFISH ANALYSIS - No more mock data!
+          console.log(
+            `🔍 Analyzing position with Stockfish: ${
+              currentFen.split(" ")[0]
+            }...`
+          );
 
-            // Create a mock analysis result to test the pipeline
-            analysis = {
-              evaluation: Math.random() * 2 - 1, // Random evaluation between -1 and 1
-              bestMove: "e2e4", // Mock best move
-              bestLine: ["e2e4"], // Mock best line
-              timeSpent: 100, // Mock time spent
-            };
+          const analysis = await this.analyzePositionWithRetry(
+            stockfish,
+            currentFen,
+            depth,
+            3 // max retries
+          );
 
-            console.log(
-              `✅ Mock analysis created: eval=${analysis.evaluation}, best=${analysis.bestMove}`
-            );
+          console.log(
+            `✅ Stockfish analysis complete: eval=${analysis.evaluation}, best=${analysis.bestMove}`
+          );
 
-            // TODO: Once we fix the StockfishService readiness issue, replace this with:
-            // analysis = await this.stockfish.analyzePosition(currentFen, depth);
-          } catch (error) {
-            console.error(`❌ Analysis failed for move ${moveIndex}:`, error);
-            chess.move(move.san);
-            continue;
-          }
+          // Get the evaluation AFTER the player's move for comparison
+          chess.move(move.san);
+          const afterMoveEval = await this.analyzePositionWithRetry(
+            stockfish,
+            chess.fen(),
+            depth,
+            2 // fewer retries for comparison analysis
+          );
 
-          if (!analysis) {
-            console.log(`⚠️ No analysis returned for move ${moveIndex}`);
-            // Still apply the move to maintain position
-            chess.move(move.san);
-            continue;
-          }
-
-          // Classify the move (compare current move vs best move evaluation)
+          // Classify the move based on evaluation difference
           const mistakeSeverity = this.classifyMove(
             analysis.evaluation,
-            analysis.evaluation // Since we don't have bestEvaluation, use the same value
+            afterMoveEval.evaluation
           );
 
           // Store analysis in database
@@ -261,13 +256,11 @@ export class AnalysisService {
           });
 
           console.log(
-            `✅ Move ${moveIndex} analyzed: ${move.san} (eval: ${analysis.evaluation}, best: ${analysis.bestMove})`
+            `✅ Move ${moveIndex} analyzed: ${move.san} (eval: ${analysis.evaluation}, best: ${analysis.bestMove}, severity: ${mistakeSeverity})`
           );
-
-          // Apply the move to progress to the next position
-          chess.move(move.san);
         } catch (error) {
           console.error(`❌ Error analyzing move ${moveIndex}:`, error);
+
           // Still apply the move to maintain position and continue
           try {
             chess.move(move.san);
@@ -278,6 +271,8 @@ export class AnalysisService {
             );
             break; // If we can't apply the move, we can't continue
           }
+
+          // Continue with next move instead of stopping entire analysis
           continue;
         }
       }
@@ -318,6 +313,57 @@ export class AnalysisService {
     }
   }
 
+  private async analyzePositionWithRetry(
+    stockfish: any,
+    fen: string,
+    depth: number,
+    maxRetries: number = 3
+  ): Promise<any> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(
+          `🔄 Analysis attempt ${attempt}/${maxRetries} for position: ${
+            fen.split(" ")[0]
+          }`
+        );
+
+        const result = await stockfish.analyzePosition(fen, { depth });
+
+        if (!result) {
+          throw new Error("Analysis returned null result");
+        }
+
+        if (!result.bestMove) {
+          throw new Error("Analysis returned no best move");
+        }
+
+        // Validate the result has required properties
+        if (typeof result.evaluation !== "number") {
+          throw new Error("Analysis returned invalid evaluation");
+        }
+
+        return result;
+      } catch (error) {
+        lastError =
+          error instanceof Error ? error : new Error("Unknown analysis error");
+        console.warn(
+          `⚠️ Analysis attempt ${attempt} failed: ${lastError.message}`
+        );
+
+        if (attempt < maxRetries) {
+          // Wait before retry - exponential backoff
+          const waitTime = Math.pow(2, attempt) * 500; // 500ms, 1s, 2s
+          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+
+    throw lastError || new Error(`Analysis failed after ${maxRetries} retries`);
+  }
+
   private createEmptyAnalysis(gameId: string): GameAnalysis {
     const emptyDetails: any[] = [];
     return {
@@ -337,15 +383,20 @@ export class AnalysisService {
     };
   }
 
-  private classifyMove(playerEval: number, bestEval: number): string {
-    // Convert evaluations to centipawns if needed
-    const playerCp = Math.abs(playerEval * 100);
-    const bestCp = Math.abs(bestEval * 100);
-    const difference = Math.abs(playerCp - bestCp);
+  private classifyMove(beforeEval: number, afterEval: number): string {
+    // Convert evaluations to centipawns for comparison
+    const beforeCp = beforeEval * 100;
+    const afterCp = afterEval * 100;
 
-    if (difference >= 300) return "blunder";
-    if (difference >= 150) return "mistake";
-    if (difference >= 50) return "inaccuracy";
+    // Calculate centipawn loss (from the perspective of the player who just moved)
+    // If it's white's move, a positive evaluation is good for white
+    // After white moves, we want to see how much the evaluation changed
+    const centipawnLoss = Math.abs(beforeCp - afterCp);
+
+    if (centipawnLoss >= 300) return "blunder";
+    if (centipawnLoss >= 150) return "mistake";
+    if (centipawnLoss >= 50) return "inaccuracy";
+    if (centipawnLoss <= 10) return "excellent";
     return "good";
   }
 
@@ -377,7 +428,7 @@ export class AnalysisService {
 
     // Calculate accuracy (percentage of good moves)
     const goodMoves = analysisResults.filter(
-      (r) => r.mistakeSeverity === "good"
+      (r) => r.mistakeSeverity === "good" || r.mistakeSeverity === "excellent"
     ).length;
     const overallAccuracy = totalMoves > 0 ? (goodMoves / totalMoves) * 100 : 0;
 
@@ -386,10 +437,10 @@ export class AnalysisService {
     const blackMoves = analysisResults.filter((r) => r.moveNumber % 2 === 0);
 
     const whiteGoodMoves = whiteMoves.filter(
-      (r) => r.mistakeSeverity === "good"
+      (r) => r.mistakeSeverity === "good" || r.mistakeSeverity === "excellent"
     ).length;
     const blackGoodMoves = blackMoves.filter(
-      (r) => r.mistakeSeverity === "good"
+      (r) => r.mistakeSeverity === "good" || r.mistakeSeverity === "excellent"
     ).length;
 
     const whiteAccuracy =
@@ -493,83 +544,5 @@ export class AnalysisService {
   // Add the method that routes expect (getAnalysisStats -> getAnalysisStatus)
   async getAnalysisStats(gameId: string) {
     return this.getAnalysisStatus(gameId);
-  }
-
-  // Helper method to ensure Stockfish is ready
-  private async ensureStockfishReady(): Promise<void> {
-    try {
-      // Instead of calling analyzePosition (which has its own readiness check),
-      // let's check if the stockfish service exists and is properly initialized
-      if (!this.stockfish) {
-        throw new Error("Stockfish service not initialized");
-      }
-
-      // Since the logs show Stockfish is responding with "readyok",
-      // let's trust that and skip the readiness test that's causing the circular issue
-      console.log(`✅ Stockfish service initialized and ready`);
-    } catch (error) {
-      console.error(`❌ Stockfish readiness check failed:`, error);
-      throw new Error(
-        `Stockfish engine not ready: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`
-      );
-    }
-  }
-
-  // Helper method to analyze position with retry logic
-  private async analyzePositionWithRetry(
-    fen: string,
-    depth: number,
-    maxRetries: number = 3
-  ): Promise<any> {
-    let lastError: Error | null = null;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(
-          `🔄 Analysis attempt ${attempt}/${maxRetries} for position: ${
-            fen.split(" ")[0]
-          }`
-        );
-        const result = await this.stockfish.analyzePosition(fen, { depth });
-
-        if (!result) {
-          throw new Error("Analysis returned null result");
-        }
-
-        if (!result.bestMove) {
-          throw new Error("Analysis returned no best move");
-        }
-
-        return result;
-      } catch (error) {
-        lastError =
-          error instanceof Error ? error : new Error("Unknown analysis error");
-        console.warn(
-          `⚠️ Analysis attempt ${attempt} failed: ${lastError.message}`
-        );
-
-        if (attempt < maxRetries) {
-          // Wait before retry - exponential backoff
-          const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
-          await new Promise((resolve) => setTimeout(resolve, waitTime));
-
-          // Try to re-initialize Stockfish if it's not ready
-          try {
-            await this.ensureStockfishReady();
-          } catch (initError) {
-            console.warn(
-              `⚠️ Failed to re-initialize Stockfish: ${
-                initError instanceof Error ? initError.message : "Unknown error"
-              }`
-            );
-          }
-        }
-      }
-    }
-
-    throw lastError || new Error("Analysis failed after all retries");
   }
 }

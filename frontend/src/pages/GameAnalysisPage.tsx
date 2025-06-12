@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // frontend/src/pages/GameAnalysisPage.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
@@ -13,14 +14,9 @@ import {
   getMistakeIcon,
 } from "../services/analysisApi";
 import type { Game } from "../types/api";
-import type {
-  Analysis,
-  AnalysisResult,
-  AnalysisProgress,
-  EngineStatus,
-} from "../services/analysisApi";
+import type { AnalysisProgress, EngineStatus } from "../services/analysisApi";
 
-// Add the GameAnalysis interface that your backend actually returns
+// Standardized GameAnalysis interface that matches backend exactly
 interface GameAnalysis {
   gameId: string;
   totalMoves: number;
@@ -47,15 +43,32 @@ interface GameAnalysis {
   }>;
 }
 
+// Simplified AnalysisResult interface for display
+interface AnalysisResult {
+  gameId: string;
+  totalPositions: number;
+  analyzedPositions: number;
+  analysisTime: number;
+  averageDepth: number;
+  mistakes: {
+    blunders: number;
+    mistakes: number;
+    inaccuracies: number;
+  };
+  accuracy: {
+    white: number;
+    black: number;
+  };
+}
+
 const GameAnalysisPage: React.FC = () => {
   const { gameId } = useParams<{ gameId: string }>();
 
   const [game, setGame] = useState<Game | null>(null);
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
-  // FIX: Change analysis to handle both old and new structures
-  const [analysis, setAnalysis] = useState<Analysis[] | GameAnalysis | null>(
-    null
-  );
+
+  // Simplified: Only use GameAnalysis structure
+  const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(
     null
   );
@@ -111,10 +124,16 @@ const GameAnalysisPage: React.FC = () => {
       if (statusData.hasExistingAnalysis) {
         console.log("Loading existing analysis...");
         const existingAnalysis = await getGameAnalysis(gameId);
-        setAnalysis(existingAnalysis);
 
-        // Calculate analysis result from existing data
-        const result = calculateAnalysisResult(existingAnalysis);
+        // Convert to standardized GameAnalysis format
+        const standardizedAnalysis = convertToGameAnalysis(
+          existingAnalysis,
+          gameId
+        );
+        setAnalysis(standardizedAnalysis);
+
+        // Calculate analysis result from standardized data
+        const result = calculateAnalysisResult(standardizedAnalysis);
         setAnalysisResult(result);
       }
     } catch (err) {
@@ -123,148 +142,130 @@ const GameAnalysisPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId]);
 
   useEffect(() => {
     loadGameAndStatus();
   }, [loadGameAndStatus]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const calculateAnalysisResult = (analysisData: any): AnalysisResult => {
-    // Handle the new GameAnalysis object structure
+  // Convert any analysis data structure to standardized GameAnalysis format
+  const convertToGameAnalysis = (
+    analysisData: any,
+    gameId: string
+  ): GameAnalysis => {
     if (!analysisData) {
-      return {
-        gameId: "",
-        totalPositions: 0,
-        analyzedPositions: 0,
-        analysisTime: 0,
-        averageDepth: 15,
-        mistakes: {
-          blunders: 0,
-          mistakes: 0,
-          inaccuracies: 0,
-        },
-        accuracy: {
-          white: 0,
-          black: 0,
-        },
-      };
+      return createEmptyGameAnalysis(gameId);
     }
 
-    // Check if it's the new GameAnalysis object structure
+    // If it's already the correct GameAnalysis structure
     if (
+      analysisData.gameId &&
       analysisData.analysisDetails &&
       Array.isArray(analysisData.analysisDetails)
     ) {
-      // New structure: GameAnalysis object with analysisDetails array
-      const details = analysisData.analysisDetails;
-
-      return {
-        gameId: analysisData.gameId || "",
-        totalPositions: analysisData.totalMoves || 0,
-        analyzedPositions: analysisData.analyzedMoves || details.length || 0,
-        analysisTime: 0, // Not available in current structure
-        averageDepth:
-          details.length > 0
-            ? details.reduce(
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (sum: number, move: any) => sum + (move.analysisDepth || 15),
-                0
-              ) / details.length
-            : 15,
-        mistakes: {
-          blunders: analysisData.mistakes?.blunders || 0,
-          mistakes: analysisData.mistakes?.mistakes || 0,
-          inaccuracies: analysisData.mistakes?.inaccuracies || 0,
-        },
-        accuracy: {
-          white: analysisData.accuracy?.white || 0,
-          black: analysisData.accuracy?.black || 0,
-        },
-      };
+      return analysisData as GameAnalysis;
     }
 
-    // Fallback: if it's an array (old structure like Analysis[])
-    else if (Array.isArray(analysisData)) {
-      // Old structure: array of Analysis objects
-      const blunders = analysisData.filter(
-        (move) => move.mistakeSeverity === "blunder"
-      ).length;
-      const mistakes = analysisData.filter(
-        (move) => move.mistakeSeverity === "mistake"
-      ).length;
-      const inaccuracies = analysisData.filter(
-        (move) => move.mistakeSeverity === "inaccuracy"
-      ).length;
+    // If it's an array of Analysis objects (old structure), convert it
+    if (Array.isArray(analysisData)) {
+      const details = analysisData.map((move: any) => ({
+        moveNumber: move.moveNumber,
+        playerMove: move.playerMove,
+        evaluation: move.stockfishEvaluation,
+        bestMove: move.bestMove,
+        mistakeSeverity: move.mistakeSeverity,
+        analysisDepth: move.analysisDepth,
+        positionFen: move.positionFen,
+        bestLine: move.bestLine,
+      }));
 
-      const totalMoves = analysisData.length;
-      const averageDepth =
-        totalMoves > 0
-          ? analysisData.reduce(
-              (sum, move) => sum + (move.analysisDepth || 15),
-              0
-            ) / totalMoves
-          : 15;
+      // Calculate statistics from the array
+      const totalMoves = details.length;
+      const mistakes = {
+        blunders: details.filter((m: any) => m.mistakeSeverity === "blunder")
+          .length,
 
-      // Calculate accuracy for white and black separately
-      const whiteMoves = analysisData.filter(
-        (move) => move.moveNumber % 2 === 1
-      );
-      const blackMoves = analysisData.filter(
-        (move) => move.moveNumber % 2 === 0
-      );
+        mistakes: details.filter((m: any) => m.mistakeSeverity === "mistake")
+          .length,
+        inaccuracies: details.filter(
+          (m: any) => m.mistakeSeverity === "inaccuracy"
+        ).length,
+      };
+
+      // Calculate accuracy for white and black
+
+      const whiteMoves = details.filter((m: any) => m.moveNumber % 2 === 1);
+      const blackMoves = details.filter((m: any) => m.moveNumber % 2 === 0);
 
       const whiteGoodMoves = whiteMoves.filter(
-        (move) => move.mistakeSeverity === "good"
+        (m: any) =>
+          m.mistakeSeverity === "good" || m.mistakeSeverity === "excellent"
       ).length;
       const blackGoodMoves = blackMoves.filter(
-        (move) => move.mistakeSeverity === "good"
+        (m: any) =>
+          m.mistakeSeverity === "good" || m.mistakeSeverity === "excellent"
       ).length;
 
       const whiteAccuracy =
         whiteMoves.length > 0 ? (whiteGoodMoves / whiteMoves.length) * 100 : 0;
       const blackAccuracy =
         blackMoves.length > 0 ? (blackGoodMoves / blackMoves.length) * 100 : 0;
+      const overallAccuracy =
+        totalMoves > 0
+          ? ((whiteGoodMoves + blackGoodMoves) / totalMoves) * 100
+          : 0;
 
       return {
-        gameId: analysisData[0]?.gameId || "",
-        totalPositions: totalMoves,
-        analyzedPositions: totalMoves,
-        analysisTime: 0,
-        averageDepth,
-        mistakes: {
-          blunders,
-          mistakes,
-          inaccuracies,
-        },
+        gameId,
+        totalMoves,
+        analyzedMoves: totalMoves,
         accuracy: {
-          white: whiteAccuracy,
-          black: blackAccuracy,
+          white: Math.round(whiteAccuracy * 100) / 100,
+          black: Math.round(blackAccuracy * 100) / 100,
+          overall: Math.round(overallAccuracy * 100) / 100,
         },
+        mistakes,
+        analysisDetails: details,
       };
     }
 
-    // Unknown structure - return safe defaults
-    else {
-      console.warn("Unknown analysis data structure:", analysisData);
-      return {
-        gameId: "",
-        totalPositions: 0,
-        analyzedPositions: 0,
-        analysisTime: 0,
-        averageDepth: 15,
-        mistakes: {
-          blunders: 0,
-          mistakes: 0,
-          inaccuracies: 0,
-        },
-        accuracy: {
-          white: 0,
-          black: 0,
-        },
-      };
-    }
+    // Unknown structure - return empty
+    console.warn("Unknown analysis data structure:", analysisData);
+    return createEmptyGameAnalysis(gameId);
+  };
+
+  const createEmptyGameAnalysis = (gameId: string): GameAnalysis => {
+    return {
+      gameId,
+      totalMoves: 0,
+      analyzedMoves: 0,
+      accuracy: { white: 0, black: 0, overall: 0 },
+      mistakes: { blunders: 0, mistakes: 0, inaccuracies: 0 },
+      analysisDetails: [],
+    };
+  };
+
+  const calculateAnalysisResult = (
+    analysisData: GameAnalysis
+  ): AnalysisResult => {
+    const details = analysisData.analysisDetails;
+
+    return {
+      gameId: analysisData.gameId,
+      totalPositions: analysisData.totalMoves,
+      analyzedPositions: analysisData.analyzedMoves,
+      analysisTime: 0, // Not available in current structure
+      averageDepth:
+        details.length > 0
+          ? details.reduce((sum, move) => sum + (move.analysisDepth || 15), 0) /
+            details.length
+          : 15,
+      mistakes: analysisData.mistakes,
+      accuracy: {
+        white: analysisData.accuracy.white,
+        black: analysisData.accuracy.black,
+      },
+    };
   };
 
   const handleStartAnalysis = async () => {
@@ -282,12 +283,21 @@ const GameAnalysisPage: React.FC = () => {
 
       console.log("Analysis completed:", result);
 
-      setAnalysisResult(result.analysis);
+      // Convert the analysis result to our standardized format
+      const standardizedAnalysis = convertToGameAnalysis(
+        result.analysis,
+        gameId
+      );
+      setAnalysis(standardizedAnalysis);
+
+      const analysisResult = calculateAnalysisResult(standardizedAnalysis);
+      setAnalysisResult(analysisResult);
+
       setSuccess(
-        `Analysis complete! Found ${result.analysis.mistakes.blunders} blunders and ${result.analysis.mistakes.mistakes} mistakes.`
+        `Analysis complete! Found ${analysisResult.mistakes.blunders} blunders and ${analysisResult.mistakes.mistakes} mistakes.`
       );
 
-      // Reload analysis data
+      // Reload analysis data to ensure consistency
       await loadGameAndStatus();
     } catch (err) {
       console.error("Analysis error:", err);
@@ -323,37 +333,6 @@ const GameAnalysisPage: React.FC = () => {
     }
   };
 
-  // Helper function to get the moves array for display
-  const getMovesForDisplay = () => {
-    if (!analysis) return [];
-
-    // If it's the new GameAnalysis structure
-    if (
-      analysis &&
-      typeof analysis === "object" &&
-      "analysisDetails" in analysis
-    ) {
-      return (analysis as GameAnalysis).analysisDetails;
-    }
-
-    // If it's the old Analysis[] structure
-    if (Array.isArray(analysis)) {
-      return analysis.map((move) => ({
-        moveNumber: move.moveNumber,
-        playerMove: move.playerMove,
-        evaluation: move.stockfishEvaluation,
-        bestMove: move.bestMove,
-        mistakeSeverity: move.mistakeSeverity,
-        analysisDepth: move.analysisDepth,
-        positionFen: move.positionFen,
-        bestLine: move.bestLine,
-        timeSpentMs: move.timeSpentMs,
-      }));
-    }
-
-    return [];
-  };
-
   if (loading) {
     return (
       <div className="game-analysis-page">
@@ -380,8 +359,6 @@ const GameAnalysisPage: React.FC = () => {
       </div>
     );
   }
-
-  const movesForDisplay = getMovesForDisplay();
 
   return (
     <div className="game-analysis-page">
@@ -566,7 +543,7 @@ const GameAnalysisPage: React.FC = () => {
                   <div className="summary-item">
                     <span className="summary-label">Average Depth:</span>
                     <span className="summary-value">
-                      {analysisResult.averageDepth}
+                      {Math.round(analysisResult.averageDepth)}
                     </span>
                   </div>
 
@@ -612,11 +589,11 @@ const GameAnalysisPage: React.FC = () => {
             <div className="analysis-details">
               <h3>Move-by-Move Analysis</h3>
 
-              {movesForDisplay.length === 0 ? (
+              {!analysis || analysis.analysisDetails.length === 0 ? (
                 <div className="no-moves">No analysis data available</div>
               ) : (
                 <div className="moves-list">
-                  {movesForDisplay.map((move) => (
+                  {analysis.analysisDetails.map((move) => (
                     <div
                       key={`${move.moveNumber}-${move.playerMove}`}
                       className={`move-item ${
@@ -666,15 +643,6 @@ const GameAnalysisPage: React.FC = () => {
                           </span>
                         </div>
 
-                        {/* {move.timeSpentMs && (
-                          <div className="detail-item">
-                            <span className="detail-label">Time:</span>
-                            <span className="detail-value">
-                              {move.timeSpentMs}ms
-                            </span>
-                          </div>
-                        )} */}
-
                         {move.positionFen && (
                           <div className="detail-item">
                             <span className="detail-label">Position:</span>
@@ -708,7 +676,8 @@ const GameAnalysisPage: React.FC = () => {
         )}
       </div>
 
-      <style>{`
+      <style>
+        {`
         .game-analysis-page {
           max-width: 1200px;
           margin: 0 auto;
@@ -1169,9 +1138,9 @@ const GameAnalysisPage: React.FC = () => {
             grid-template-columns: 1fr;
           }
         }
-      `}</style>
+      `}
+      </style>
     </div>
   );
 };
-
 export default GameAnalysisPage;

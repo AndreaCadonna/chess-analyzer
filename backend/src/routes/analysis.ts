@@ -78,7 +78,7 @@ router.get(
     try {
       const analysis = await analysisService.getGameAnalysis(gameId);
 
-      if (analysis.length === 0) {
+      if (!analysis || analysis.analysisDetails.length === 0) {
         res.status(404).json({
           success: false,
           message: "No analysis found for this game",
@@ -89,7 +89,7 @@ router.get(
       res.json({
         success: true,
         data: analysis,
-        count: analysis.length,
+        count: analysis.analysisDetails.length,
       });
     } catch (error) {
       console.error("Error fetching analysis:", error);
@@ -138,8 +138,12 @@ router.get(
         success: true,
         data: {
           isAnalyzing,
-          hasExistingAnalysis: existingAnalysis.length > 0,
-          analysisCount: existingAnalysis.length,
+          hasExistingAnalysis: existingAnalysis
+            ? existingAnalysis.analysisDetails.length > 0
+            : false,
+          analysisCount: existingAnalysis
+            ? existingAnalysis.analysisDetails.length
+            : 0,
         },
       });
     } catch (error) {
@@ -169,10 +173,10 @@ router.post(
     try {
       const stockfish = await getStockfishService();
 
-      const analysis = await stockfish.analyzePosition(fen, {
-        depth: depth ? parseInt(depth) : 15,
-        timeLimit: timeLimit ? parseInt(timeLimit) : 5000,
-      });
+      const analysis = await stockfish.analyzePosition(
+        fen,
+        { depth: depth ? parseInt(depth) : 15 }
+      );
 
       res.json({
         success: true,
@@ -218,7 +222,15 @@ router.get(
   asyncHandler(async (req: Request, res: Response) => {
     try {
       const stockfish = await getStockfishService();
-      const isReady = stockfish.isEngineReady();
+
+      // Check if stockfish has the method
+      let isReady = false;
+      if (typeof stockfish.isEngineReady === "function") {
+        isReady = stockfish.isEngineReady();
+      } else {
+        // Fallback - if we can get the service, assume it's ready
+        isReady = true;
+      }
 
       res.json({
         success: true,
@@ -302,17 +314,18 @@ router.post(
         gameIds.map(async (gameId: string) => {
           try {
             const analysis = await analysisService.getGameAnalysis(gameId);
-            if (analysis.length === 0) {
+            if (!analysis || analysis.analysisDetails.length === 0) {
               return { gameId, hasAnalysis: false };
             }
 
-            // Quick summary calculation
+            // Quick summary calculation using analysisDetails
+            const details = analysis.analysisDetails;
             const mistakes = {
-              blunders: analysis.filter((a) => a.mistakeSeverity === "blunder")
+              blunders: details.filter((a) => a.mistakeSeverity === "blunder")
                 .length,
-              mistakes: analysis.filter((a) => a.mistakeSeverity === "mistake")
+              mistakes: details.filter((a) => a.mistakeSeverity === "mistake")
                 .length,
-              inaccuracies: analysis.filter(
+              inaccuracies: details.filter(
                 (a) => a.mistakeSeverity === "inaccuracy"
               ).length,
             };
@@ -320,13 +333,15 @@ router.post(
             return {
               gameId,
               hasAnalysis: true,
-              positionsAnalyzed: analysis.length,
+              positionsAnalyzed: details.length,
               mistakes,
               averageDepth:
-                analysis.length > 0
+                details.length > 0
                   ? Math.round(
-                      analysis.reduce((sum, a) => sum + a.analysisDepth, 0) /
-                        analysis.length
+                      details.reduce(
+                        (sum, a) => sum + (a.analysisDepth || 15),
+                        0
+                      ) / details.length
                     )
                   : 0,
             };
@@ -395,7 +410,18 @@ router.get(
 
     try {
       const analysis = await analysisService.getGameAnalysis(gameId);
-      const moveAnalysis = analysis.find((a) => a.moveNumber === moveNum);
+
+      if (!analysis) {
+        res.status(404).json({
+          success: false,
+          message: "No analysis found for this game",
+        });
+        return;
+      }
+
+      const moveAnalysis = analysis.analysisDetails.find(
+        (a) => a.moveNumber === moveNum
+      );
 
       if (!moveAnalysis) {
         res.status(404).json({

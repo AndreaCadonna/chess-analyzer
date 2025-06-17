@@ -92,7 +92,7 @@ const GameAnalysisPage: React.FC = () => {
   // Analysis options
   const [analysisOptions, setAnalysisOptions] = useState({
     depth: 15,
-    skipOpeningMoves: 6,
+    skipOpeningMoves: 0,
     maxPositions: 30,
   });
 
@@ -866,6 +866,8 @@ const GameAnalysisPage: React.FC = () => {
                     }
                     disabled={analyzing}
                   >
+                    <option value={0}>0 moves</option>
+                    <option value={2}>2 moves</option>
                     <option value={4}>4 moves</option>
                     <option value={6}>6 moves</option>
                     <option value={8}>8 moves</option>

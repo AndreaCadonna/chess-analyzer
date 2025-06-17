@@ -1,13 +1,44 @@
 FROM node:18-slim
 
-# Update package list and install Stockfish from Ubuntu repositories
+# Install system dependencies
 RUN apt-get update && \
-    apt-get install -y stockfish && \
+    apt-get install -y wget && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Verify Stockfish installation
-RUN stockfish --help > /dev/null || echo "Stockfish installed successfully"
+# Download and install Stockfish 17.1
+# Let's investigate what's actually in the tar file first
+RUN echo "=== Installing Stockfish 17.1 ===" && \
+    cd /tmp && \
+    wget https://github.com/official-stockfish/Stockfish/releases/download/sf_17.1/stockfish-ubuntu-x86-64-avx2.tar && \
+    echo "=== Extracting tar file ===" && \
+    tar -tf stockfish-ubuntu-x86-64-avx2.tar && \
+    echo "=== Listing files after extraction ===" && \
+    tar -xf stockfish-ubuntu-x86-64-avx2.tar && \
+    ls -la && \
+    echo "=== Finding executable files ===" && \
+    find . -type f -executable && \
+    echo "=== Looking for any stockfish files ===" && \
+    find . -name "*stockfish*" -o -name "*sf*" && \
+    echo "=== Moving the correct executable ===" && \
+    # Try to find the actual executable
+    EXECUTABLE=$(find . -type f -executable | grep -E "(stockfish|sf)" | head -1) && \
+    if [ -n "$EXECUTABLE" ]; then \
+        echo "Found executable: $EXECUTABLE"; \
+        chmod +x "$EXECUTABLE"; \
+        mv "$EXECUTABLE" /usr/local/bin/stockfish; \
+    else \
+        echo "No executable found, trying all files:"; \
+        ls -la; \
+        # Fallback: assume it's just named differently
+        BINARY=$(ls | grep -v ".tar" | head -1); \
+        echo "Using: $BINARY"; \
+        chmod +x "$BINARY"; \
+        mv "$BINARY" /usr/local/bin/stockfish; \
+    fi && \
+    rm -f stockfish-ubuntu-x86-64-avx2.tar && \
+    echo "=== Stockfish 17.1 installation complete ===" && \
+    /usr/local/bin/stockfish --help | head -3
 
 # Set up working directory
 WORKDIR /app
@@ -28,7 +59,7 @@ RUN mkdir -p logs
 EXPOSE 3001
 
 # Set environment variable for Stockfish path
-ENV STOCKFISH_PATH=/usr/games/stockfish
+ENV STOCKFISH_PATH=/usr/local/bin/stockfish
 
 # Start the development server
 CMD ["npm", "run", "dev"]

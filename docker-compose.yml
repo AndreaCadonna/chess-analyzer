@@ -31,13 +31,17 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
+      args:
+        # Optional: specify Stockfish version and binary type
+        STOCKFISH_VERSION: "17"
+        STOCKFISH_BINARY: "stockfish-ubuntu-x86-64-avx2"
     ports:
       - "3001:3001"
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/chess_analyzer
       - REDIS_URL=redis://redis:6379
-      - STOCKFISH_PATH=/usr/games/stockfish  # Path to Stockfish in Ubuntu
+      - STOCKFISH_PATH=/usr/local/bin/stockfish  # Updated path for latest Stockfish
     volumes:
       - ./backend:/app
       - /app/node_modules

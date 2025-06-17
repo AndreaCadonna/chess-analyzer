@@ -66,8 +66,8 @@ export class AnalysisService {
   ): Promise<GameAnalysis> {
     const {
       depth = 15,
-      skipMoves = 6,
-      skipOpeningMoves = 6,
+      skipMoves = 0,
+      skipOpeningMoves = 0,
       maxPositions,
       onProgress,
     } = options;
@@ -189,13 +189,6 @@ export class AnalysisService {
         try {
           // Get current position FEN BEFORE the move was played
           const currentFen = chess.fen();
-
-          // REAL STOCKFISH ANALYSIS - No more mock data!
-          console.log(
-            `🔍 Analyzing position with Stockfish: ${
-              currentFen.split(" ")[0]
-            }...`
-          );
 
           const analysis = await this.analyzePositionWithRetry(
             stockfish,

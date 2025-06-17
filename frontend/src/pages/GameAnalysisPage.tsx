@@ -1,7 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// frontend/src/pages/GameAnalysisPage.tsx
-import React, { useState, useEffect, useCallback } from "react";
+// frontend/src/pages/GameAnalysisPage.tsx - Enhanced with Chess Board
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
+import { Chessboard } from "react-chessboard";
+import type { Square } from "react-chessboard/dist/chessboard/types";
+import { Chess } from "chess.js";
 import { getGame } from "../services/api";
 import {
   getEngineStatus,
@@ -67,16 +70,24 @@ const GameAnalysisPage: React.FC = () => {
   const [game, setGame] = useState<Game | null>(null);
   const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
 
-  // Simplified: Only use GameAnalysis structure
+  // Analysis state
   const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(
     null
   );
 
+  // UI state
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Chess board state
+  const [currentMoveIndex, setCurrentMoveIndex] = useState<number>(0);
+  const [boardOrientation, setBoardOrientation] = useState<"white" | "black">(
+    "white"
+  );
+  const [showBestMoveArrow, setShowBestMoveArrow] = useState(true);
 
   // Analysis options
   const [analysisOptions, setAnalysisOptions] = useState({
@@ -91,6 +102,159 @@ const GameAnalysisPage: React.FC = () => {
 
   // Analysis status
   const [hasExistingAnalysis, setHasExistingAnalysis] = useState(false);
+
+  // Parse game moves and positions
+  const gameData = useMemo(() => {
+    if (!game?.pgn) return null;
+
+    try {
+      const chess = new Chess();
+      chess.loadPgn(game.pgn);
+
+      // Get move history
+      const moveHistory = chess.history({ verbose: true });
+
+      // Calculate positions for each move
+      const positions: string[] = [
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      ]; // Starting position
+
+      const chessTemp = new Chess();
+      moveHistory.forEach((move) => {
+        chessTemp.move(move);
+        positions.push(chessTemp.fen());
+      });
+
+      return {
+        moves: moveHistory,
+        positions,
+        totalMoves: moveHistory.length,
+      };
+    } catch (error) {
+      console.error("Error parsing PGN:", error);
+      return null;
+    }
+  }, [game?.pgn]);
+
+  // Get current position FEN
+  const currentPosition = useMemo(() => {
+    if (!gameData)
+      return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    return gameData.positions[currentMoveIndex] || gameData.positions[0];
+  }, [gameData, currentMoveIndex]);
+
+  // Get current move analysis
+  const currentMoveAnalysis = useMemo(() => {
+    if (!analysis?.analysisDetails || currentMoveIndex === 0) return null;
+
+    // Find analysis for current move (analysis is 1-indexed, our array is 0-indexed)
+    return (
+      analysis.analysisDetails.find(
+        (detail) => detail.moveNumber === currentMoveIndex
+      ) || null
+    );
+  }, [analysis?.analysisDetails, currentMoveIndex]);
+
+  // Get move arrows for best moves
+  const moveArrows = useMemo(() => {
+    if (!showBestMoveArrow || !currentMoveAnalysis?.bestMove) return [];
+
+    try {
+      const move = currentMoveAnalysis.bestMove;
+      if (move.length >= 4) {
+        const fromSquare = move.substring(0, 2) as Square;
+        const toSquare = move.substring(2, 4) as Square;
+
+        // Validate square format (a1-h8)
+        const isValidSquare = (square: string): square is Square => {
+          return /^[a-h][1-8]$/.test(square);
+        };
+
+        if (isValidSquare(fromSquare) && isValidSquare(toSquare)) {
+          return [[fromSquare, toSquare, "rgb(40, 167, 69)"]];
+        }
+      }
+    } catch (error) {
+      console.error("Error creating move arrows:", error);
+    }
+
+    return [];
+  }, [showBestMoveArrow, currentMoveAnalysis?.bestMove]);
+
+  // Get last move highlight
+  const lastMoveSquares = useMemo(() => {
+    if (currentMoveIndex === 0 || !gameData?.moves[currentMoveIndex - 1])
+      return {};
+
+    const lastMove = gameData.moves[currentMoveIndex - 1];
+    return {
+      [lastMove.from]: { backgroundColor: "rgba(255, 255, 0, 0.4)" },
+      [lastMove.to]: { backgroundColor: "rgba(255, 255, 0, 0.4)" },
+    };
+  }, [currentMoveIndex, gameData?.moves]);
+
+  // Navigation functions
+  const goToMove = useCallback(
+    (moveIndex: number) => {
+      if (!gameData) return;
+      const clampedIndex = Math.max(
+        0,
+        Math.min(moveIndex, gameData.totalMoves)
+      );
+      setCurrentMoveIndex(clampedIndex);
+    },
+    [gameData]
+  );
+
+  const goToStart = useCallback(() => goToMove(0), [goToMove]);
+  const goToEnd = useCallback(() => {
+    if (gameData) goToMove(gameData.totalMoves);
+  }, [goToMove, gameData]);
+
+  const goToPrevious = useCallback(
+    () => goToMove(currentMoveIndex - 1),
+    [goToMove, currentMoveIndex]
+  );
+  const goToNext = useCallback(
+    () => goToMove(currentMoveIndex + 1),
+    [goToMove, currentMoveIndex]
+  );
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyPress = (event: KeyboardEvent) => {
+      switch (event.key) {
+        case "ArrowLeft":
+          event.preventDefault();
+          goToPrevious();
+          break;
+        case "ArrowRight":
+          event.preventDefault();
+          goToNext();
+          break;
+        case "Home":
+          event.preventDefault();
+          goToStart();
+          break;
+        case "End":
+          event.preventDefault();
+          goToEnd();
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyPress);
+    return () => window.removeEventListener("keydown", handleKeyPress);
+  }, [goToPrevious, goToNext, goToStart, goToEnd]);
+
+  // Set board orientation based on game
+  useEffect(() => {
+    if (game && gameData) {
+      // Determine if user was playing white or black
+      // You might need to adjust this logic based on how you determine the user
+      setBoardOrientation("white"); // Default to white for now
+    }
+  }, [game, gameData]);
 
   const loadGameAndStatus = useCallback(async () => {
     if (!gameId) {
@@ -184,7 +348,6 @@ const GameAnalysisPage: React.FC = () => {
       const mistakes = {
         blunders: details.filter((m: any) => m.mistakeSeverity === "blunder")
           .length,
-
         mistakes: details.filter((m: any) => m.mistakeSeverity === "mistake")
           .length,
         inaccuracies: details.filter(
@@ -193,7 +356,6 @@ const GameAnalysisPage: React.FC = () => {
       };
 
       // Calculate accuracy for white and black
-
       const whiteMoves = details.filter((m: any) => m.moveNumber % 2 === 1);
       const blackMoves = details.filter((m: any) => m.moveNumber % 2 === 0);
 
@@ -326,6 +488,7 @@ const GameAnalysisPage: React.FC = () => {
       setAnalysis(null);
       setAnalysisResult(null);
       setHasExistingAnalysis(false);
+      setCurrentMoveIndex(0);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to delete analysis"
@@ -410,22 +573,255 @@ const GameAnalysisPage: React.FC = () => {
         </div>
       )}
 
-      {/* Analysis Section */}
-      <div className="analysis-section">
-        <div className="section-header">
-          <h2>Chess Engine Analysis</h2>
-          {hasExistingAnalysis && (
-            <button
-              onClick={handleDeleteAnalysis}
-              className="delete-analysis-button"
-            >
-              Delete Analysis
-            </button>
-          )}
-        </div>
+      {/* Main Content */}
+      {hasExistingAnalysis && gameData ? (
+        <div className="analysis-view">
+          {/* Chess Board and Navigation */}
+          <div className="board-section">
+            <div className="board-container">
+              <Chessboard
+                position={currentPosition}
+                boardOrientation={boardOrientation}
+                customArrows={moveArrows as any}
+                customSquareStyles={lastMoveSquares}
+                boardWidth={400}
+                arePiecesDraggable={false}
+                customBoardStyle={{
+                  borderRadius: "4px",
+                  boxShadow: "0 2px 10px rgba(0, 0, 0, 0.2)",
+                }}
+              />
+            </div>
 
-        {!hasExistingAnalysis ? (
-          // No analysis yet - show analysis form
+            {/* Board Controls */}
+            <div className="board-controls">
+              <button
+                onClick={goToStart}
+                disabled={currentMoveIndex === 0}
+                className="nav-button"
+                title="Go to start (Home)"
+              >
+                ⏮
+              </button>
+              <button
+                onClick={goToPrevious}
+                disabled={currentMoveIndex === 0}
+                className="nav-button"
+                title="Previous move (←)"
+              >
+                ◀
+              </button>
+              <span className="move-counter">
+                {currentMoveIndex} / {gameData.totalMoves}
+              </span>
+              <button
+                onClick={goToNext}
+                disabled={currentMoveIndex >= gameData.totalMoves}
+                className="nav-button"
+                title="Next move (→)"
+              >
+                ▶
+              </button>
+              <button
+                onClick={goToEnd}
+                disabled={currentMoveIndex >= gameData.totalMoves}
+                className="nav-button"
+                title="Go to end (End)"
+              >
+                ⏭
+              </button>
+            </div>
+
+            {/* Board Options */}
+            <div className="board-options">
+              <button
+                onClick={() =>
+                  setBoardOrientation(
+                    boardOrientation === "white" ? "black" : "white"
+                  )
+                }
+                className="option-button"
+              >
+                🔄 Flip Board
+              </button>
+              <label className="option-checkbox">
+                <input
+                  type="checkbox"
+                  checked={showBestMoveArrow}
+                  onChange={(e) => setShowBestMoveArrow(e.target.checked)}
+                />
+                Show Best Move
+              </label>
+            </div>
+
+            {/* Current Move Info */}
+            {currentMoveIndex > 0 && gameData.moves[currentMoveIndex - 1] && (
+              <div className="current-move-info">
+                <h4>
+                  Move {currentMoveIndex}:{" "}
+                  {gameData.moves[currentMoveIndex - 1].san}
+                </h4>
+                {currentMoveAnalysis && (
+                  <div className="move-analysis-summary">
+                    <div className="evaluation">
+                      Evaluation:{" "}
+                      <strong>
+                        {formatEvaluation(currentMoveAnalysis.evaluation)}
+                      </strong>
+                    </div>
+                    <div className="best-move">
+                      Best: <strong>{currentMoveAnalysis.bestMove}</strong>
+                    </div>
+                    {currentMoveAnalysis.mistakeSeverity && (
+                      <div
+                        className="mistake-badge"
+                        style={{
+                          backgroundColor: getMistakeColor(
+                            currentMoveAnalysis.mistakeSeverity
+                          ),
+                        }}
+                      >
+                        {getMistakeIcon(currentMoveAnalysis.mistakeSeverity)}{" "}
+                        {currentMoveAnalysis.mistakeSeverity}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Analysis Panel */}
+          <div className="analysis-panel">
+            {/* Analysis Summary */}
+            {analysisResult && (
+              <div className="analysis-summary">
+                <h3>Analysis Summary</h3>
+                <div className="summary-grid">
+                  <div className="summary-item">
+                    <span className="summary-label">Positions Analyzed:</span>
+                    <span className="summary-value">
+                      {analysisResult.analyzedPositions}
+                    </span>
+                  </div>
+                  <div className="summary-item blunders">
+                    <span className="summary-label">💥 Blunders:</span>
+                    <span className="summary-value">
+                      {analysisResult.mistakes.blunders}
+                    </span>
+                  </div>
+                  <div className="summary-item mistakes">
+                    <span className="summary-label">❌ Mistakes:</span>
+                    <span className="summary-value">
+                      {analysisResult.mistakes.mistakes}
+                    </span>
+                  </div>
+                  <div className="summary-item inaccuracies">
+                    <span className="summary-label">⚠️ Inaccuracies:</span>
+                    <span className="summary-value">
+                      {analysisResult.mistakes.inaccuracies}
+                    </span>
+                  </div>
+                  <div className="summary-item accuracy-white">
+                    <span className="summary-label">White Accuracy:</span>
+                    <span className="summary-value">
+                      {analysisResult.accuracy.white}%
+                    </span>
+                  </div>
+                  <div className="summary-item accuracy-black">
+                    <span className="summary-label">Black Accuracy:</span>
+                    <span className="summary-value">
+                      {analysisResult.accuracy.black}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Move List */}
+            <div className="move-list-section">
+              <h3>Move List</h3>
+              <div className="move-list">
+                <div
+                  className={`move-item ${
+                    currentMoveIndex === 0 ? "current" : ""
+                  }`}
+                  onClick={() => goToMove(0)}
+                >
+                  <span className="move-number">Start</span>
+                  <span className="move-notation">Starting Position</span>
+                </div>
+
+                {gameData.moves.map((move, index) => {
+                  const moveNumber = index + 1;
+                  const moveAnalysis = analysis?.analysisDetails.find(
+                    (d) => d.moveNumber === moveNumber
+                  );
+                  const isCurrent = currentMoveIndex === moveNumber;
+
+                  return (
+                    <div
+                      key={moveNumber}
+                      className={`move-item ${isCurrent ? "current" : ""} ${
+                        moveAnalysis?.mistakeSeverity || ""
+                      }`}
+                      onClick={() => goToMove(moveNumber)}
+                    >
+                      <span className="move-number">{moveNumber}.</span>
+                      <span className="move-notation">{move.san}</span>
+                      {moveAnalysis && (
+                        <>
+                          <span className="move-evaluation">
+                            {formatEvaluation(moveAnalysis.evaluation)}
+                          </span>
+                          {moveAnalysis.mistakeSeverity && (
+                            <span
+                              className="mistake-indicator"
+                              style={{
+                                color: getMistakeColor(
+                                  moveAnalysis.mistakeSeverity
+                                ),
+                              }}
+                            >
+                              {getMistakeIcon(moveAnalysis.mistakeSeverity)}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="analysis-actions">
+              <button
+                onClick={() => {
+                  setHasExistingAnalysis(false);
+                  setAnalysis(null);
+                  setAnalysisResult(null);
+                }}
+                className="re-analyze-button"
+              >
+                Configure New Analysis
+              </button>
+              <button
+                onClick={handleDeleteAnalysis}
+                className="delete-analysis-button"
+              >
+                Delete Analysis
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        // No analysis yet - show analysis form (existing code)
+        <div className="analysis-section">
+          <div className="section-header">
+            <h2>Chess Engine Analysis</h2>
+          </div>
+
           <div className="no-analysis">
             <h3>No Analysis Available</h3>
             <p>
@@ -525,161 +921,12 @@ const GameAnalysisPage: React.FC = () => {
               </div>
             )}
           </div>
-        ) : (
-          // Analysis exists - show results
-          <div className="analysis-results">
-            {analysisResult && (
-              <div className="analysis-summary">
-                <h3>Analysis Summary</h3>
+        </div>
+      )}
 
-                <div className="summary-grid">
-                  <div className="summary-item">
-                    <span className="summary-label">Positions Analyzed:</span>
-                    <span className="summary-value">
-                      {analysisResult.analyzedPositions}
-                    </span>
-                  </div>
-
-                  <div className="summary-item">
-                    <span className="summary-label">Average Depth:</span>
-                    <span className="summary-value">
-                      {Math.round(analysisResult.averageDepth)}
-                    </span>
-                  </div>
-
-                  <div className="summary-item blunders">
-                    <span className="summary-label">💥 Blunders:</span>
-                    <span className="summary-value">
-                      {analysisResult.mistakes.blunders}
-                    </span>
-                  </div>
-
-                  <div className="summary-item mistakes">
-                    <span className="summary-label">❌ Mistakes:</span>
-                    <span className="summary-value">
-                      {analysisResult.mistakes.mistakes}
-                    </span>
-                  </div>
-
-                  <div className="summary-item inaccuracies">
-                    <span className="summary-label">⚠️ Inaccuracies:</span>
-                    <span className="summary-value">
-                      {analysisResult.mistakes.inaccuracies}
-                    </span>
-                  </div>
-
-                  <div className="summary-item accuracy-white">
-                    <span className="summary-label">White Accuracy:</span>
-                    <span className="summary-value">
-                      {analysisResult.accuracy.white}%
-                    </span>
-                  </div>
-
-                  <div className="summary-item accuracy-black">
-                    <span className="summary-label">Black Accuracy:</span>
-                    <span className="summary-value">
-                      {analysisResult.accuracy.black}%
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Analysis Details */}
-            <div className="analysis-details">
-              <h3>Move-by-Move Analysis</h3>
-
-              {!analysis || analysis.analysisDetails.length === 0 ? (
-                <div className="no-moves">No analysis data available</div>
-              ) : (
-                <div className="moves-list">
-                  {analysis.analysisDetails.map((move) => (
-                    <div
-                      key={`${move.moveNumber}-${move.playerMove}`}
-                      className={`move-item ${
-                        move.mistakeSeverity || "normal"
-                      }`}
-                    >
-                      <div className="move-header">
-                        <span className="move-number">{move.moveNumber}.</span>
-                        <span className="move-notation">{move.playerMove}</span>
-                        <span className="move-evaluation">
-                          {formatEvaluation(move.evaluation)}
-                        </span>
-                        {move.mistakeSeverity && (
-                          <span
-                            className="mistake-badge"
-                            style={{
-                              backgroundColor: getMistakeColor(
-                                move.mistakeSeverity
-                              ),
-                            }}
-                          >
-                            {getMistakeIcon(move.mistakeSeverity)}{" "}
-                            {move.mistakeSeverity}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="move-details">
-                        <div className="detail-item">
-                          <span className="detail-label">Best Move:</span>
-                          <span className="detail-value">{move.bestMove}</span>
-                        </div>
-
-                        {move.bestLine && (
-                          <div className="detail-item">
-                            <span className="detail-label">Best Line:</span>
-                            <span className="detail-value best-line">
-                              {move.bestLine}
-                            </span>
-                          </div>
-                        )}
-
-                        <div className="detail-item">
-                          <span className="detail-label">Depth:</span>
-                          <span className="detail-value">
-                            {move.analysisDepth || 15}
-                          </span>
-                        </div>
-
-                        {move.positionFen && (
-                          <div className="detail-item">
-                            <span className="detail-label">Position:</span>
-                            <span className="detail-value position-fen">
-                              {move.positionFen.split(" ")[0]}...
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Re-analyze Button */}
-            <div className="re-analyze">
-              <h4>Want to analyze again with different settings?</h4>
-              <button
-                onClick={() => {
-                  setHasExistingAnalysis(false);
-                  setAnalysis(null);
-                  setAnalysisResult(null);
-                }}
-                className="re-analyze-button"
-              >
-                Configure New Analysis
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <style>
-        {`
+      <style>{`
         .game-analysis-page {
-          max-width: 1200px;
+          max-width: 1400px;
           margin: 0 auto;
           padding: 20px;
         }
@@ -772,6 +1019,317 @@ const GameAnalysisPage: React.FC = () => {
           border: 1px solid #c3e6cb;
         }
 
+        /* Analysis View Layout */
+        .analysis-view {
+          display: grid;
+          grid-template-columns: minmax(400px, 500px) 1fr;
+          gap: 30px;
+          margin-top: 20px;
+        }
+
+        .board-section {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .board-container {
+          display: flex;
+          justify-content: center;
+        }
+
+        .board-controls {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .nav-button {
+          background: #007bff;
+          color: white;
+          border: none;
+          padding: 8px 12px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 1.2em;
+          transition: background 0.2s;
+        }
+
+        .nav-button:hover:not(:disabled) {
+          background: #0056b3;
+        }
+
+        .nav-button:disabled {
+          background: #6c757d;
+          cursor: not-allowed;
+          opacity: 0.6;
+        }
+
+        .move-counter {
+          background: #f8f9fa;
+          padding: 8px 12px;
+          border-radius: 4px;
+          font-weight: bold;
+          color: #495057;
+          min-width: 80px;
+          text-align: center;
+        }
+
+        .board-options {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 15px;
+          flex-wrap: wrap;
+        }
+
+        .option-button {
+          background: #6c757d;
+          color: white;
+          border: none;
+          padding: 6px 12px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 0.9em;
+        }
+
+        .option-button:hover {
+          background: #5a6268;
+        }
+
+        .option-checkbox {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          font-size: 0.9em;
+          color: #495057;
+          cursor: pointer;
+        }
+
+        .option-checkbox input {
+          cursor: pointer;
+        }
+
+        .current-move-info {
+          background: #f8f9fa;
+          padding: 15px;
+          border-radius: 8px;
+          border-left: 4px solid #007bff;
+        }
+
+        .current-move-info h4 {
+          margin: 0 0 10px 0;
+          color: #2c3e50;
+        }
+
+        .move-analysis-summary {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .evaluation,
+        .best-move {
+          font-size: 0.9em;
+          color: #495057;
+        }
+
+        .mistake-badge {
+          color: white;
+          padding: 4px 8px;
+          border-radius: 12px;
+          font-size: 0.8em;
+          font-weight: bold;
+          text-transform: uppercase;
+          display: inline-block;
+          max-width: fit-content;
+        }
+
+        /* Analysis Panel */
+        .analysis-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .analysis-summary {
+          background: #f8f9fa;
+          padding: 20px;
+          border-radius: 8px;
+        }
+
+        .analysis-summary h3 {
+          margin: 0 0 15px 0;
+          color: #2c3e50;
+        }
+
+        .summary-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 10px;
+        }
+
+        .summary-item {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 10px;
+          background: white;
+          border-radius: 6px;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .summary-item.blunders {
+          border-left: 4px solid #dc3545;
+        }
+
+        .summary-item.mistakes {
+          border-left: 4px solid #fd7e14;
+        }
+
+        .summary-item.inaccuracies {
+          border-left: 4px solid #ffc107;
+        }
+
+        .summary-item.accuracy-white,
+        .summary-item.accuracy-black {
+          border-left: 4px solid #28a745;
+        }
+
+        .summary-label {
+          font-size: 0.8em;
+          color: #6c757d;
+          margin-bottom: 4px;
+          text-align: center;
+        }
+
+        .summary-value {
+          font-weight: bold;
+          color: #2c3e50;
+          font-size: 1.1em;
+        }
+
+        /* Move List */
+        .move-list-section {
+          background: white;
+          border-radius: 8px;
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+          overflow: hidden;
+        }
+
+        .move-list-section h3 {
+          margin: 0;
+          padding: 15px 20px;
+          background: #f8f9fa;
+          border-bottom: 1px solid #e9ecef;
+          color: #2c3e50;
+        }
+
+        .move-list {
+          max-height: 400px;
+          overflow-y: auto;
+        }
+
+        .move-item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 20px;
+          cursor: pointer;
+          transition: background-color 0.2s;
+          border-bottom: 1px solid #f8f9fa;
+        }
+
+        .move-item:hover {
+          background-color: #f8f9fa;
+        }
+
+        .move-item.current {
+          background-color: #e3f2fd;
+          border-left: 4px solid #2196f3;
+        }
+
+        .move-item.blunder {
+          border-left: 4px solid #dc3545;
+        }
+
+        .move-item.mistake {
+          border-left: 4px solid #fd7e14;
+        }
+
+        .move-item.inaccuracy {
+          border-left: 4px solid #ffc107;
+        }
+
+        .move-item.excellent {
+          border-left: 4px solid #28a745;
+        }
+
+        .move-number {
+          font-weight: bold;
+          color: #6c757d;
+          min-width: 35px;
+          font-size: 0.9em;
+        }
+
+        .move-notation {
+          font-weight: bold;
+          color: #2c3e50;
+          min-width: 60px;
+        }
+
+        .move-evaluation {
+          font-family: 'Courier New', monospace;
+          font-size: 0.8em;
+          background: #e9ecef;
+          padding: 2px 6px;
+          border-radius: 3px;
+          color: #495057;
+        }
+
+        .mistake-indicator {
+          font-size: 1em;
+          margin-left: auto;
+        }
+
+        /* Analysis Actions */
+        .analysis-actions {
+          display: flex;
+          gap: 10px;
+          justify-content: center;
+          flex-wrap: wrap;
+        }
+
+        .re-analyze-button,
+        .delete-analysis-button {
+          padding: 10px 20px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 0.9em;
+          transition: background 0.2s;
+        }
+
+        .re-analyze-button {
+          background: #6c757d;
+          color: white;
+        }
+
+        .re-analyze-button:hover {
+          background: #5a6268;
+        }
+
+        .delete-analysis-button {
+          background: #dc3545;
+          color: white;
+        }
+
+        .delete-analysis-button:hover {
+          background: #c82333;
+        }
+
+        /* Original Analysis Section (for no analysis state) */
         .analysis-section {
           background: white;
           padding: 30px;
@@ -789,20 +1347,6 @@ const GameAnalysisPage: React.FC = () => {
         .section-header h2 {
           margin: 0;
           color: #2c3e50;
-        }
-
-        .delete-analysis-button {
-          background: #dc3545;
-          color: white;
-          border: none;
-          padding: 8px 16px;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 0.9em;
-        }
-
-        .delete-analysis-button:hover {
-          background: #c82333;
         }
 
         .no-analysis {
@@ -861,10 +1405,6 @@ const GameAnalysisPage: React.FC = () => {
           color: #6c757d;
         }
 
-        .analysis-actions {
-          text-align: center;
-        }
-
         .start-analysis-button {
           background: #007bff;
           color: white;
@@ -918,195 +1458,6 @@ const GameAnalysisPage: React.FC = () => {
           font-weight: 500;
         }
 
-        .analysis-summary {
-          margin-bottom: 30px;
-          padding: 20px;
-          background: #f8f9fa;
-          border-radius: 8px;
-        }
-
-        .analysis-summary h3 {
-          margin: 0 0 20px 0;
-          color: #2c3e50;
-        }
-
-        .summary-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 15px;
-        }
-
-        .summary-item {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 12px;
-          background: white;
-          border-radius: 6px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        }
-
-        .summary-item.blunders {
-          border-left: 4px solid #dc3545;
-        }
-
-        .summary-item.mistakes {
-          border-left: 4px solid #fd7e14;
-        }
-
-        .summary-item.inaccuracies {
-          border-left: 4px solid #ffc107;
-        }
-
-        .summary-item.accuracy-white,
-        .summary-item.accuracy-black {
-          border-left: 4px solid #28a745;
-        }
-
-        .summary-label {
-          font-weight: 500;
-          color: #495057;
-        }
-
-        .summary-value {
-          font-weight: bold;
-          color: #2c3e50;
-          font-size: 1.1em;
-        }
-
-        .analysis-details h3 {
-          margin: 0 0 20px 0;
-          color: #2c3e50;
-        }
-
-        .no-moves {
-          text-align: center;
-          padding: 40px;
-          color: #6c757d;
-        }
-
-        .moves-list {
-          display: flex;
-          flex-direction: column;
-          gap: 15px;
-        }
-
-        .move-item {
-          padding: 15px;
-          border: 1px solid #e9ecef;
-          border-radius: 8px;
-          transition: box-shadow 0.2s;
-        }
-
-        .move-item:hover {
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        .move-item.blunder {
-          border-left: 4px solid #dc3545;
-        }
-
-        .move-item.mistake {
-          border-left: 4px solid #fd7e14;
-        }
-
-        .move-item.inaccuracy {
-          border-left: 4px solid #ffc107;
-        }
-
-        .move-item.excellent {
-          border-left: 4px solid #28a745;
-        }
-
-        .move-header {
-          display: flex;
-          align-items: center;
-          gap: 15px;
-          margin-bottom: 10px;
-          flex-wrap: wrap;
-        }
-
-        .move-number {
-          font-weight: bold;
-          color: #6c757d;
-          min-width: 30px;
-        }
-
-        .move-notation {
-          font-weight: bold;
-          font-size: 1.1em;
-          color: #2c3e50;
-        }
-
-        .move-evaluation {
-          font-family: 'Courier New', monospace;
-          font-weight: bold;
-          background: #e9ecef;
-          padding: 2px 8px;
-          border-radius: 4px;
-        }
-
-        .mistake-badge {
-          color: white;
-          padding: 2px 8px;
-          border-radius: 12px;
-          font-size: 0.8em;
-          font-weight: bold;
-          text-transform: uppercase;
-        }
-
-        .move-details {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-          gap: 10px;
-        }
-
-        .detail-item {
-          display: flex;
-          gap: 10px;
-        }
-
-        .detail-label {
-          font-weight: 500;
-          color: #6c757d;
-          min-width: 80px;
-        }
-
-        .detail-value {
-          color: #2c3e50;
-        }
-
-        .best-line {
-          font-family: 'Courier New', monospace;
-          font-size: 0.9em;
-        }
-
-        .re-analyze {
-          margin-top: 30px;
-          padding: 20px;
-          background: #f8f9fa;
-          border-radius: 8px;
-          text-align: center;
-        }
-
-        .re-analyze h4 {
-          margin: 0 0 15px 0;
-          color: #2c3e50;
-        }
-
-        .re-analyze-button {
-          background: #6c757d;
-          color: white;
-          border: none;
-          padding: 10px 20px;
-          border-radius: 6px;
-          cursor: pointer;
-        }
-
-        .re-analyze-button:hover {
-          background: #5a6268;
-        }
-
         .loading,
         .error {
           text-align: center;
@@ -1118,29 +1469,76 @@ const GameAnalysisPage: React.FC = () => {
           margin-bottom: 10px;
         }
 
+        /* Responsive Design */
+        @media (max-width: 1200px) {
+          .analysis-view {
+            grid-template-columns: 1fr;
+            gap: 20px;
+          }
+
+          .board-section {
+            order: 1;
+          }
+
+          .analysis-panel {
+            order: 2;
+          }
+        }
+
         @media (max-width: 768px) {
           .game-analysis-page {
             padding: 10px;
           }
 
-          .options-grid,
-          .summary-grid {
-            grid-template-columns: 1fr;
+          .board-controls {
+            flex-wrap: wrap;
+            gap: 8px;
           }
 
-          .move-header {
+          .nav-button {
+            padding: 6px 10px;
+            font-size: 1em;
+          }
+
+          .board-options {
             flex-direction: column;
-            align-items: flex-start;
             gap: 10px;
           }
 
-          .move-details {
+          .summary-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+
+          .options-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .analysis-actions {
+            flex-direction: column;
+          }
+        }
+
+        @media (max-width: 500px) {
+          .move-item {
+            padding: 6px 15px;
+            font-size: 0.9em;
+          }
+
+          .move-number {
+            min-width: 30px;
+          }
+
+          .move-notation {
+            min-width: 50px;
+          }
+
+          .summary-grid {
             grid-template-columns: 1fr;
           }
         }
-      `}
-      </style>
+      `}</style>
     </div>
   );
 };
+
 export default GameAnalysisPage;

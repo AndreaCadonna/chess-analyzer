@@ -7,6 +7,7 @@ import ImportPage from "./pages/ImportPage";
 import GamesList from "./pages/GamesList";
 import "./App.css";
 import GameAnalysisPage from "./pages/GameAnalysisPage";
+import LiveAnalysisTest from "./components/LiveAnalysisTest";
 
 interface HealthStatus {
   status: string;
@@ -142,6 +143,8 @@ const HomePage = () => {
             Manage Users & Import Games
           </Link>
         </div>
+
+        <LiveAnalysisTest></LiveAnalysisTest>
 
         <div className="status-section">
           <h3>📈 Development Status</h3>

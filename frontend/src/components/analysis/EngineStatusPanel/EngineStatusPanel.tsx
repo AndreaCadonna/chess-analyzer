@@ -13,7 +13,7 @@ interface EngineStatus {
 interface LiveAnalysisState {
   isConnected: boolean;
   isAnalyzing: boolean;
-  connectionError?: string;
+  connectionError: string | null;
   sessionId: string | null;
 }
 

@@ -1,0 +1,222 @@
+.game-analysis-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1.25rem;
+}
+
+.page-header {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.page-header h1 {
+  margin: 0 0 0.75rem 0;
+  color: #2c3e50;
+}
+
+.game-info {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.players {
+  font-weight: bold;
+  font-size: 1.1em;
+  color: #2c3e50;
+}
+
+.result {
+  background: #e9ecef;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-weight: bold;
+}
+
+.date {
+  color: #6c757d;
+  font-size: 0.9em;
+}
+
+.analysis-mode-selector {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  justify-content: center;
+}
+
+.analysis-view {
+  display: grid;
+  grid-template-columns: minmax(450px, 550px) 1fr;
+  gap: 2rem;
+  margin-top: 1.25rem;
+}
+
+.board-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.analysis-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.analysis-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.section-header h2 {
+  margin: 0;
+  color: #2c3e50;
+}
+
+.no-analysis {
+  text-align: center;
+  padding: 2.5rem 1.25rem;
+}
+
+.no-analysis h3 {
+  color: #2c3e50;
+  margin-bottom: 0.75rem;
+}
+
+.no-analysis p {
+  color: #6c757d;
+  margin-bottom: 2rem;
+}
+
+.analysis-options {
+  max-width: 600px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.analysis-options h4 {
+  margin-bottom: 1.25rem;
+  color: #2c3e50;
+}
+
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+}
+
+.option label {
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #495057;
+}
+
+.option select {
+  padding: 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 0.25rem;
+  font-size: 1rem;
+}
+
+.option select:disabled {
+  background: #e9ecef;
+  color: #6c757d;
+}
+
+.analysis-actions {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.analysis-progress {
+  margin-top: 2rem;
+  padding: 1.25rem;
+  background: #f8f9fa;
+  border-radius: 0.5rem;
+}
+
+.analysis-progress h4 {
+  margin: 0 0 1rem 0;
+  color: #2c3e50;
+}
+
+.loading {
+  text-align: center;
+  padding: 2.5rem;
+  color: #6c757d;
+  font-size: 1.1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+  .analysis-view {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+
+  .board-column {
+    order: 1;
+  }
+
+  .analysis-column {
+    order: 2;
+  }
+}
+
+@media (max-width: 768px) {
+  .game-analysis-page {
+    padding: 0.75rem;
+  }
+
+  .analysis-mode-selector {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .game-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .options-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-section {
+    padding: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .page-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .no-analysis {
+    padding: 1.5rem 1rem;
+  }
+
+  .analysis-progress {
+    padding: 1rem;
+  }
+}

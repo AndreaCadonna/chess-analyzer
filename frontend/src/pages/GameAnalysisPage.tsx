@@ -1,9 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// frontend/src/pages/GameAnalysisPage.tsx - Enhanced with Live Analysis
+// frontend/src/pages/GameAnalysisPage.tsx - Refactored with UI Components
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
-import { Chessboard } from "react-chessboard";
-import type { Square } from "react-chessboard/dist/chessboard/types";
 import { Chess } from "chess.js";
 import { getGame } from "../services/api";
 import {
@@ -12,14 +10,29 @@ import {
   getGameAnalysis,
   getAnalysisStatus,
   deleteGameAnalysis,
-  formatEvaluation,
-  getMistakeColor,
-  getMistakeIcon,
 } from "../services/analysisApi";
-import { VariationExplorer } from "../components/VariationExplorer"; // 🆕 Import variation explorer
+import { VariationExplorer } from "../components/VariationExplorer";
 import type { Game } from "../types/api";
 import type { AnalysisProgress, EngineStatus } from "../services/analysisApi";
 import { useLiveAnalysis } from "../hook/useLiveAnalysis";
+
+// Import UI Components
+import Button from "../components/ui/Button";
+import Alert from "../components/ui/Alert";
+import Modal from "../components/ui/Modal";
+import ProgressBar from "../components/ui/ProgressBar";
+
+// Import Analysis Components
+
+import EngineStatusPanel from "../components/analysis/EngineStatusPanel/EngineStatusPanel";
+import LiveAnalysisControls from "../components/analysis/LiveAnalysisControls/LiveAnalysisControls";
+import AnalysisSummary from "../components/analysis/AnalysisSummary/AnalysisSummary";
+import MoveList from "../components/analysis/MoveList/MoveList";
+import CurrentMoveInfo from "../components/analysis/CurrentMoveInfo/CurrentMoveInfo";
+import AnalysisActions from "../components/analysis/AnalysisActions/AnalysisActions";
+import BoardSection from "../components/analysis/BoardSection/BoardSection";
+
+import "./GameAnalysisPage.css";
 
 // Standardized GameAnalysis interface that matches backend exactly
 interface GameAnalysis {
@@ -66,13 +79,13 @@ interface AnalysisResult {
   };
 }
 
-// 🆕 Analysis Mode constants
+// Analysis Mode constants
 const AnalysisMode = {
-  GAME_ANALYSIS: 'game',
-  VARIATION_EXPLORER: 'explorer'
+  GAME_ANALYSIS: "game",
+  VARIATION_EXPLORER: "explorer",
 } as const;
 
-type AnalysisMode = typeof AnalysisMode[keyof typeof AnalysisMode];
+type AnalysisMode = (typeof AnalysisMode)[keyof typeof AnalysisMode];
 
 const GameAnalysisPage: React.FC = () => {
   const { gameId } = useParams<{ gameId: string }>();
@@ -82,12 +95,15 @@ const GameAnalysisPage: React.FC = () => {
 
   // Analysis state
   const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(
+    null
+  );
 
-  // 🆕 Live analysis integration
+  // Live analysis integration
   const [liveAnalysisState, liveAnalysisActions] = useLiveAnalysis();
-  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>(AnalysisMode.GAME_ANALYSIS);
-  const [autoAnalyzeEnabled, setAutoAnalyzeEnabled] = useState(true);
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>(
+    AnalysisMode.GAME_ANALYSIS
+  );
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -97,8 +113,11 @@ const GameAnalysisPage: React.FC = () => {
 
   // Chess board state
   const [currentMoveIndex, setCurrentMoveIndex] = useState<number>(0);
-  const [boardOrientation, setBoardOrientation] = useState<"white" | "black">("white");
+  const [boardOrientation, setBoardOrientation] = useState<"white" | "black">(
+    "white"
+  );
   const [showBestMoveArrow, setShowBestMoveArrow] = useState(true);
+  const [autoAnalyzeEnabled, setAutoAnalyzeEnabled] = useState(true);
 
   // Analysis options
   const [analysisOptions, setAnalysisOptions] = useState({
@@ -107,15 +126,12 @@ const GameAnalysisPage: React.FC = () => {
     maxPositions: 30,
   });
 
-  // 🆕 Live analysis settings
-  const [liveAnalysisSettings, setLiveAnalysisSettings] = useState({
-    depth: 18,
-    timeLimit: 10000,
-    enabled: true
-  });
+  // Modal states
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
 
   // Analysis progress
-  const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null);
+  const [analysisProgress, setAnalysisProgress] =
+    useState<AnalysisProgress | null>(null);
 
   // Analysis status
   const [hasExistingAnalysis, setHasExistingAnalysis] = useState(false);
@@ -164,7 +180,6 @@ const GameAnalysisPage: React.FC = () => {
   const currentMoveAnalysis = useMemo(() => {
     if (!analysis?.analysisDetails || currentMoveIndex === 0) return null;
 
-    // Find analysis for current move (analysis is 1-indexed, our array is 0-indexed)
     return (
       analysis.analysisDetails.find(
         (detail) => detail.moveNumber === currentMoveIndex
@@ -172,73 +187,7 @@ const GameAnalysisPage: React.FC = () => {
     );
   }, [analysis?.analysisDetails, currentMoveIndex]);
 
-  // 🆕 Get move arrows combining game analysis and live analysis
-  const moveArrows = useMemo(() => {
-    if (!showBestMoveArrow) return [];
-
-    const arrows: any[] = [];
-
-    // Show cached analysis best move (if available)
-    if (currentMoveAnalysis?.bestMove) {
-      try {
-        const move = currentMoveAnalysis.bestMove;
-        if (move.length >= 4) {
-          const fromSquare = move.substring(0, 2) as Square;
-          const toSquare = move.substring(2, 4) as Square;
-
-          const isValidSquare = (square: string): square is Square => {
-            return /^[a-h][1-8]$/.test(square);
-          };
-
-          if (isValidSquare(fromSquare) && isValidSquare(toSquare)) {
-            arrows.push([fromSquare, toSquare, "rgba(40, 167, 69, 0.7)"]); // Green for cached analysis
-          }
-        }
-      } catch (error) {
-        console.error("Error creating cached analysis arrow:", error);
-      }
-    }
-
-    // Show live analysis best move (if available and different)
-    if (liveAnalysisState.currentResult?.lines[0]?.bestMove) {
-      try {
-        const liveMove = liveAnalysisState.currentResult.lines[0].bestMove;
-        const cachedMove = currentMoveAnalysis?.bestMove;
-
-        // Only show if different from cached analysis
-        if (liveMove !== cachedMove && liveMove.length >= 4) {
-          const fromSquare = liveMove.substring(0, 2) as Square;
-          const toSquare = liveMove.substring(2, 4) as Square;
-
-          const isValidSquare = (square: string): square is Square => {
-            return /^[a-h][1-8]$/.test(square);
-          };
-
-          if (isValidSquare(fromSquare) && isValidSquare(toSquare)) {
-            arrows.push([fromSquare, toSquare, "rgba(255, 193, 7, 0.8)"]); // Yellow for live analysis
-          }
-        }
-      } catch (error) {
-        console.error("Error creating live analysis arrow:", error);
-      }
-    }
-
-    return arrows;
-  }, [showBestMoveArrow, currentMoveAnalysis?.bestMove, liveAnalysisState.currentResult]);
-
-  // Get last move highlight
-  const lastMoveSquares = useMemo(() => {
-    if (currentMoveIndex === 0 || !gameData?.moves[currentMoveIndex - 1])
-      return {};
-
-    const lastMove = gameData.moves[currentMoveIndex - 1];
-    return {
-      [lastMove.from]: { backgroundColor: "rgba(255, 255, 0, 0.4)" },
-      [lastMove.to]: { backgroundColor: "rgba(255, 255, 0, 0.4)" },
-    };
-  }, [currentMoveIndex, gameData?.moves]);
-
-  // 🆕 Auto-analyze current position when it changes
+  // Auto-analyze current position when it changes
   useEffect(() => {
     if (
       autoAnalyzeEnabled &&
@@ -248,13 +197,17 @@ const GameAnalysisPage: React.FC = () => {
       currentPosition &&
       liveAnalysisState.lastAnalyzedFen !== currentPosition
     ) {
-      console.log(`🔄 Auto-analyzing new position: ${currentPosition.substring(0, 30)}...`);
-      liveAnalysisActions.analyzePosition(currentPosition, {
-        depth: liveAnalysisSettings.depth,
-        timeLimit: liveAnalysisSettings.timeLimit
-      }).catch((error: Error) => {
-        console.error("Auto-analysis failed:", error);
-      });
+      console.log(
+        `🔄 Auto-analyzing new position: ${currentPosition.substring(0, 30)}...`
+      );
+      liveAnalysisActions
+        .analyzePosition(currentPosition, {
+          depth: liveAnalysisState.settings.depth,
+          timeLimit: liveAnalysisState.settings.timeLimit,
+        })
+        .catch((error: Error) => {
+          console.error("Auto-analysis failed:", error);
+        });
     }
   }, [
     currentPosition,
@@ -264,12 +217,12 @@ const GameAnalysisPage: React.FC = () => {
     liveAnalysisState.isAnalyzing,
     liveAnalysisState.lastAnalyzedFen,
     liveAnalysisActions,
-    liveAnalysisSettings
+    liveAnalysisState.settings,
   ]);
 
-  // 🆕 Initialize live analysis session when component mounts
+  // Initialize live analysis session when component mounts
   useEffect(() => {
-    if (liveAnalysisSettings.enabled && !liveAnalysisState.sessionId) {
+    if (!liveAnalysisState.sessionId) {
       console.log("🚀 Initializing live analysis session");
       liveAnalysisActions.createSession().catch((error: Error) => {
         console.error("Failed to create live analysis session:", error);
@@ -284,7 +237,7 @@ const GameAnalysisPage: React.FC = () => {
         });
       }
     };
-  }, [liveAnalysisSettings.enabled]);
+  }, []);
 
   // Navigation functions
   const goToMove = useCallback(
@@ -343,8 +296,6 @@ const GameAnalysisPage: React.FC = () => {
   // Set board orientation based on game
   useEffect(() => {
     if (game && gameData) {
-      // Determine if user was playing white or black
-      // You might need to adjust this logic based on how you determine the user
       setBoardOrientation("white"); // Default to white for now
     }
   }, [game, gameData]);
@@ -564,12 +515,7 @@ const GameAnalysisPage: React.FC = () => {
   };
 
   const handleDeleteAnalysis = async () => {
-    if (
-      !gameId ||
-      !confirm("Are you sure you want to delete the analysis for this game?")
-    ) {
-      return;
-    }
+    if (!gameId) return;
 
     try {
       setError(null);
@@ -590,27 +536,37 @@ const GameAnalysisPage: React.FC = () => {
     }
   };
 
-  // 🆕 Handle live analysis settings update
-  const handleLiveAnalysisSettingsUpdate = async (newSettings: Partial<typeof liveAnalysisSettings>) => {
-    const updatedSettings = { ...liveAnalysisSettings, ...newSettings };
-    setLiveAnalysisSettings(updatedSettings);
-
+  // Handle live analysis settings update
+  const handleLiveAnalysisUpdate = async (
+    newSettings: Partial<typeof liveAnalysisState.settings>
+  ) => {
     if (liveAnalysisState.isConnected) {
       try {
-        await liveAnalysisActions.updateSettings({
-          depth: updatedSettings.depth,
-          timeLimit: updatedSettings.timeLimit
-        });
+        await liveAnalysisActions.updateSettings(newSettings);
       } catch (error) {
         console.error("Failed to update live analysis settings:", error);
       }
     }
   };
 
-  // 🆕 Toggle between analysis modes
+  // Handle manual analysis trigger
+  const handleAnalyzeNow = async () => {
+    if (liveAnalysisState.isConnected) {
+      try {
+        await liveAnalysisActions.analyzePosition(currentPosition, {
+          depth: liveAnalysisState.settings.depth,
+          timeLimit: liveAnalysisState.settings.timeLimit,
+        });
+      } catch (error) {
+        console.error("Manual analysis failed:", error);
+      }
+    }
+  };
+
+  // Toggle between analysis modes
   const handleModeSwitch = (newMode: AnalysisMode) => {
     setAnalysisMode(newMode);
-    
+
     if (newMode === AnalysisMode.VARIATION_EXPLORER) {
       console.log("🧪 Switching to variation explorer mode");
     } else {
@@ -618,20 +574,20 @@ const GameAnalysisPage: React.FC = () => {
     }
   };
 
-  // 🆕 Get current position for variation explorer
+  // Get current position for variation explorer
   const getCurrentPositionForExploration = useCallback(() => {
     return currentPosition;
   }, [currentPosition]);
 
-  // 🆕 Prepare game line data for variation explorer
+  // Prepare game line data for variation explorer
   const gameLineForExplorer = useMemo(() => {
     if (!analysis?.analysisDetails || !gameData?.moves) return [];
-    
-    return analysis.analysisDetails.map(detail => ({
+
+    return analysis.analysisDetails.map((detail) => ({
       moveNumber: detail.moveNumber,
-      move: gameData.moves[detail.moveNumber - 1]?.san || '',
-      fen: detail.positionFen || '',
-      evaluation: detail.evaluation
+      move: gameData.moves[detail.moveNumber - 1]?.san || "",
+      fen: detail.positionFen || "",
+      evaluation: detail.evaluation,
     }));
   }, [analysis?.analysisDetails, gameData?.moves]);
 
@@ -646,10 +602,9 @@ const GameAnalysisPage: React.FC = () => {
   if (error && !game) {
     return (
       <div className="game-analysis-page">
-        <div className="error">
-          <h2>Error</h2>
-          <p>{error}</p>
-        </div>
+        <Alert variant="error" title="Error">
+          {error}
+        </Alert>
       </div>
     );
   }
@@ -657,7 +612,7 @@ const GameAnalysisPage: React.FC = () => {
   if (!game) {
     return (
       <div className="game-analysis-page">
-        <div className="error">Game not found</div>
+        <Alert variant="error">Game not found</Alert>
       </div>
     );
   }
@@ -678,92 +633,61 @@ const GameAnalysisPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 🆕 Analysis Mode Selector */}
+      {/* Analysis Mode Selector */}
       <div className="analysis-mode-selector">
-        <button
-          className={`mode-button ${analysisMode === AnalysisMode.GAME_ANALYSIS ? 'active' : ''}`}
+        <Button
+          variant={
+            analysisMode === AnalysisMode.GAME_ANALYSIS ? "primary" : "outline"
+          }
           onClick={() => handleModeSwitch(AnalysisMode.GAME_ANALYSIS)}
         >
           📊 Game Analysis
-        </button>
-        <button
-          className={`mode-button ${analysisMode === AnalysisMode.VARIATION_EXPLORER ? 'active' : ''}`}
+        </Button>
+        <Button
+          variant={
+            analysisMode === AnalysisMode.VARIATION_EXPLORER
+              ? "primary"
+              : "outline"
+          }
           onClick={() => handleModeSwitch(AnalysisMode.VARIATION_EXPLORER)}
-          disabled={!hasExistingAnalysis} // Only enable if we have analysis data
+          disabled={!hasExistingAnalysis}
         >
           🧪 Variation Explorer
-        </button>
+        </Button>
       </div>
 
       {/* Engine Status */}
-      <div className="engine-status">
-        <h3>🔥 Engine Status</h3>
-        <div className="status-grid">
-          {/* Traditional Engine Status */}
-          <div className="status-item">
-            <span className="status-label">Game Analysis Engine:</span>
-            {engineStatus ? (
-              <div className={`status ${engineStatus.engineReady ? "ready" : "error"}`}>
-                <span className="status-indicator">
-                  {engineStatus.engineReady ? "✅" : "❌"}
-                </span>
-                <span className="status-text">
-                  {engineStatus.engineReady
-                    ? `${engineStatus.engineType} Ready`
-                    : `Engine Error: ${engineStatus.error || "Not available"}`}
-                </span>
-              </div>
-            ) : (
-              <div className="status loading">Checking engine status...</div>
-            )}
-          </div>
-
-          {/* 🆕 Live Analysis Status */}
-          <div className="status-item">
-            <span className="status-label">Live Analysis:</span>
-            <div className={`status ${liveAnalysisState.isConnected ? "ready" : "error"}`}>
-              <span className="status-indicator">
-                {liveAnalysisState.isConnected ? "🟢" : "🔴"}
-              </span>
-              <span className="status-text">
-                {liveAnalysisState.isConnected
-                  ? `Connected (${liveAnalysisState.isAnalyzing ? 'Analyzing' : 'Ready'})`
-                  : liveAnalysisState.connectionError || "Disconnected"}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <EngineStatusPanel
+        engineStatus={engineStatus}
+        liveAnalysisState={liveAnalysisState}
+      />
 
       {/* Alerts */}
       {error && (
-        <div className="alert error">
-          <strong>Error:</strong> {error}
-        </div>
+        <Alert variant="error" dismissible onDismiss={() => setError(null)}>
+          {error}
+        </Alert>
       )}
 
       {success && (
-        <div className="alert success">
-          <strong>Success:</strong> {success}
-        </div>
+        <Alert variant="success" dismissible onDismiss={() => setSuccess(null)}>
+          {success}
+        </Alert>
       )}
 
-      {/* 🆕 Show live analysis errors */}
       {liveAnalysisState.error && (
-        <div className="alert error">
+        <Alert
+          variant="warning"
+          dismissible
+          onDismiss={liveAnalysisActions.clearError}
+        >
           <strong>Live Analysis Error:</strong> {liveAnalysisState.error}
-          <button 
-            onClick={liveAnalysisActions.clearError}
-            style={{ marginLeft: '10px', padding: '2px 8px', fontSize: '0.8em' }}
-          >
-            Clear
-          </button>
-        </div>
+        </Alert>
       )}
 
       {/* Main Content */}
       {analysisMode === AnalysisMode.VARIATION_EXPLORER ? (
-        // 🆕 Variation Explorer Mode
+        // Variation Explorer Mode
         <VariationExplorer
           initialFen={getCurrentPositionForExploration()}
           gameLine={gameLineForExplorer}
@@ -772,347 +696,77 @@ const GameAnalysisPage: React.FC = () => {
       ) : hasExistingAnalysis && gameData ? (
         <div className="analysis-view">
           {/* Chess Board and Navigation */}
-          <div className="board-section">
-            <div className="board-container">
-              <Chessboard
-                position={currentPosition}
-                boardOrientation={boardOrientation}
-                customArrows={moveArrows as any}
-                customSquareStyles={lastMoveSquares}
-                boardWidth={400}
-                arePiecesDraggable={false}
-                customBoardStyle={{
-                  borderRadius: "4px",
-                  boxShadow: "0 2px 10px rgba(0, 0, 0, 0.2)",
-                }}
-              />
-            </div>
+          <div className="board-column">
+            <BoardSection
+              position={currentPosition}
+              orientation={boardOrientation}
+              currentMoveIndex={currentMoveIndex}
+              totalMoves={gameData.totalMoves}
+              onGoToStart={goToStart}
+              onGoToPrevious={goToPrevious}
+              onGoToNext={goToNext}
+              onGoToEnd={goToEnd}
+              onFlipBoard={() =>
+                setBoardOrientation(
+                  boardOrientation === "white" ? "black" : "white"
+                )
+              }
+              showBestMoveArrow={showBestMoveArrow}
+              onToggleBestMoveArrow={setShowBestMoveArrow}
+              autoAnalyzeEnabled={autoAnalyzeEnabled}
+              onToggleAutoAnalyze={setAutoAnalyzeEnabled}
+              boardWidth={450}
+            />
 
-            {/* Board Controls */}
-            <div className="board-controls">
-              <button
-                onClick={goToStart}
-                disabled={currentMoveIndex === 0}
-                className="nav-button"
-                title="Go to start (Home)"
-              >
-                ⏮
-              </button>
-              <button
-                onClick={goToPrevious}
-                disabled={currentMoveIndex === 0}
-                className="nav-button"
-                title="Previous move (←)"
-              >
-                ◀
-              </button>
-              <span className="move-counter">
-                {currentMoveIndex} / {gameData.totalMoves}
-              </span>
-              <button
-                onClick={goToNext}
-                disabled={currentMoveIndex >= gameData.totalMoves}
-                className="nav-button"
-                title="Next move (→)"
-              >
-                ▶
-              </button>
-              <button
-                onClick={goToEnd}
-                disabled={currentMoveIndex >= gameData.totalMoves}
-                className="nav-button"
-                title="Go to end (End)"
-              >
-                ⏭
-              </button>
-            </div>
-
-            {/* Board Options */}
-            <div className="board-options">
-              <button
-                onClick={() =>
-                  setBoardOrientation(
-                    boardOrientation === "white" ? "black" : "white"
-                  )
-                }
-                className="option-button"
-              >
-                🔄 Flip Board
-              </button>
-              <label className="option-checkbox">
-                <input
-                  type="checkbox"
-                  checked={showBestMoveArrow}
-                  onChange={(e) => setShowBestMoveArrow(e.target.checked)}
-                />
-                Show Best Moves
-              </label>
-              {/* 🆕 Auto-analyze toggle */}
-              <label className="option-checkbox">
-                <input
-                  type="checkbox"
-                  checked={autoAnalyzeEnabled}
-                  onChange={(e) => setAutoAnalyzeEnabled(e.target.checked)}
-                />
-                Auto-analyze
-              </label>
-            </div>
-
-            {/* 🆕 Current Move Info with Live Analysis */}
-            {currentMoveIndex > 0 && gameData.moves[currentMoveIndex - 1] && (
-              <div className="current-move-info">
-                <h4>
-                  Move {currentMoveIndex}:{" "}
-                  {gameData.moves[currentMoveIndex - 1].san}
-                </h4>
-                
-                {/* Cached Analysis */}
-                {currentMoveAnalysis && (
-                  <div className="cached-analysis">
-                    <h5>📊 Game Analysis:</h5>
-                    <div className="move-analysis-summary">
-                      <div className="evaluation">
-                        Evaluation:{" "}
-                        <strong>
-                          {formatEvaluation(currentMoveAnalysis.evaluation)}
-                        </strong>
-                      </div>
-                      <div className="best-move">
-                        Best: <strong>{currentMoveAnalysis.bestMove}</strong>
-                      </div>
-                      {currentMoveAnalysis.mistakeSeverity && (
-                        <div
-                          className="mistake-badge"
-                          style={{
-                            backgroundColor: getMistakeColor(
-                              currentMoveAnalysis.mistakeSeverity
-                            ),
-                          }}
-                        >
-                          {getMistakeIcon(currentMoveAnalysis.mistakeSeverity)}{" "}
-                          {currentMoveAnalysis.mistakeSeverity}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* 🆕 Live Analysis */}
-                {liveAnalysisState.currentResult && (
-                  <div className="live-analysis">
-                    <h5>🔄 Live Analysis:</h5>
-                    <div className="live-analysis-summary">
-                      {liveAnalysisState.currentResult.lines.map((line: any, index: number) => (
-                        <div key={index} className="analysis-line">
-                          <div className="line-header">
-                            <span className="line-number">#{line.multiPvIndex}</span>
-                            <span className="evaluation">
-                              <strong>{formatEvaluation(line.evaluation)}</strong>
-                            </span>
-                            <span className="best-move">{line.bestMove}</span>
-                          </div>
-                          <div className="pv-line">
-                            {line.pv.slice(0, 5).join(' ')}
-                            {line.pv.length > 5 && '...'}
-                          </div>
-                        </div>
-                      ))}
-                      <div className="analysis-time">
-                        Analysis time: {liveAnalysisState.currentResult.analysisTime}ms
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* 🆕 Live Analysis Status */}
-                {liveAnalysisState.isAnalyzing && (
-                  <div className="analyzing-indicator">
-                    🔄 Analyzing current position...
-                  </div>
-                )}
-              </div>
-            )}
+            <CurrentMoveInfo
+              currentMoveIndex={currentMoveIndex}
+              moveNotation={
+                currentMoveIndex > 0 && gameData.moves[currentMoveIndex - 1]
+                  ? gameData.moves[currentMoveIndex - 1].san
+                  : undefined
+              }
+              cachedAnalysis={currentMoveAnalysis || undefined}
+              liveAnalysisResult={liveAnalysisState.currentResult || undefined}
+              isAnalyzing={liveAnalysisState.isAnalyzing}
+            />
           </div>
 
           {/* Analysis Panel */}
-          <div className="analysis-panel">
-            {/* 🆕 Live Analysis Controls */}
-            <div className="live-analysis-controls">
-              <h3>🔄 Live Analysis Controls</h3>
-              
-              <div className="controls-grid">
-                <div className="control-group">
-                  <label>Depth: {liveAnalysisSettings.depth}</label>
-                  <input
-                    type="range"
-                    min="10"
-                    max="30"
-                    value={liveAnalysisSettings.depth}
-                    onChange={(e) => handleLiveAnalysisSettingsUpdate({
-                      depth: parseInt(e.target.value)
-                    })}
-                    disabled={!liveAnalysisState.isConnected}
-                  />
-                </div>
-                
-                <div className="control-group">
-                  <label>Time: {liveAnalysisSettings.timeLimit / 1000}s</label>
-                  <input
-                    type="range"
-                    min="5000"
-                    max="30000"
-                    step="1000"
-                    value={liveAnalysisSettings.timeLimit}
-                    onChange={(e) => handleLiveAnalysisSettingsUpdate({
-                      timeLimit: parseInt(e.target.value)
-                    })}
-                    disabled={!liveAnalysisState.isConnected}
-                  />
-                </div>
-                
-                <div className="control-group">
-                  <button
-                    onClick={() => {
-                      if (liveAnalysisState.isConnected) {
-                        liveAnalysisActions.analyzePosition(currentPosition, {
-                          depth: liveAnalysisSettings.depth,
-                          timeLimit: liveAnalysisSettings.timeLimit
-                        });
-                      }
-                    }}
-                    disabled={!liveAnalysisState.isConnected || liveAnalysisState.isAnalyzing}
-                    className="analyze-now-button"
-                  >
-                    {liveAnalysisState.isAnalyzing ? 'Analyzing...' : 'Analyze Now'}
-                  </button>
-                </div>
-              </div>
-            </div>
+          <div className="analysis-column">
+            <LiveAnalysisControls
+              settings={liveAnalysisState.settings}
+              isConnected={liveAnalysisState.isConnected}
+              isAnalyzing={liveAnalysisState.isAnalyzing}
+              onUpdateSettings={handleLiveAnalysisUpdate}
+              onAnalyzeNow={handleAnalyzeNow}
+            />
 
-            {/* Analysis Summary */}
             {analysisResult && (
-              <div className="analysis-summary">
-                <h3>Analysis Summary</h3>
-                <div className="summary-grid">
-                  <div className="summary-item">
-                    <span className="summary-label">Positions Analyzed:</span>
-                    <span className="summary-value">
-                      {analysisResult.analyzedPositions}
-                    </span>
-                  </div>
-                  <div className="summary-item blunders">
-                    <span className="summary-label">💥 Blunders:</span>
-                    <span className="summary-value">
-                      {analysisResult.mistakes.blunders}
-                    </span>
-                  </div>
-                  <div className="summary-item mistakes">
-                    <span className="summary-label">❌ Mistakes:</span>
-                    <span className="summary-value">
-                      {analysisResult.mistakes.mistakes}
-                    </span>
-                  </div>
-                  <div className="summary-item inaccuracies">
-                    <span className="summary-label">⚠️ Inaccuracies:</span>
-                    <span className="summary-value">
-                      {analysisResult.mistakes.inaccuracies}
-                    </span>
-                  </div>
-                  <div className="summary-item accuracy-white">
-                    <span className="summary-label">White Accuracy:</span>
-                    <span className="summary-value">
-                      {analysisResult.accuracy.white}%
-                    </span>
-                  </div>
-                  <div className="summary-item accuracy-black">
-                    <span className="summary-label">Black Accuracy:</span>
-                    <span className="summary-value">
-                      {analysisResult.accuracy.black}%
-                    </span>
-                  </div>
-                </div>
-              </div>
+              <AnalysisSummary analysisResult={analysisResult} />
             )}
 
-            {/* Move List */}
-            <div className="move-list-section">
-              <h3>Move List</h3>
-              <div className="move-list">
-                <div
-                  className={`move-item ${
-                    currentMoveIndex === 0 ? "current" : ""
-                  }`}
-                  onClick={() => goToMove(0)}
-                >
-                  <span className="move-number">Start</span>
-                  <span className="move-notation">Starting Position</span>
-                </div>
+            <MoveList
+              moves={gameData.moves}
+              analysisDetails={analysis?.analysisDetails || []}
+              currentMoveIndex={currentMoveIndex}
+              totalMoves={gameData.totalMoves}
+              onMoveClick={goToMove}
+            />
 
-                {gameData.moves.map((move, index) => {
-                  const moveNumber = index + 1;
-                  const moveAnalysis = analysis?.analysisDetails.find(
-                    (d) => d.moveNumber === moveNumber
-                  );
-                  const isCurrent = currentMoveIndex === moveNumber;
-
-                  return (
-                    <div
-                      key={moveNumber}
-                      className={`move-item ${isCurrent ? "current" : ""} ${
-                        moveAnalysis?.mistakeSeverity || ""
-                      }`}
-                      onClick={() => goToMove(moveNumber)}
-                    >
-                      <span className="move-number">{moveNumber}.</span>
-                      <span className="move-notation">{move.san}</span>
-                      {moveAnalysis && (
-                        <>
-                          <span className="move-evaluation">
-                            {formatEvaluation(moveAnalysis.evaluation)}
-                          </span>
-                          {moveAnalysis.mistakeSeverity && (
-                            <span
-                              className="mistake-indicator"
-                              style={{
-                                color: getMistakeColor(
-                                  moveAnalysis.mistakeSeverity
-                                ),
-                              }}
-                            >
-                              {getMistakeIcon(moveAnalysis.mistakeSeverity)}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="analysis-actions">
-              <button
-                onClick={() => {
-                  setHasExistingAnalysis(false);
-                  setAnalysis(null);
-                  setAnalysisResult(null);
-                }}
-                className="re-analyze-button"
-              >
-                Configure New Analysis
-              </button>
-              <button
-                onClick={handleDeleteAnalysis}
-                className="delete-analysis-button"
-              >
-                Delete Analysis
-              </button>
-            </div>
+            <AnalysisActions
+              hasAnalysis={!!analysis}
+              isAnalyzing={analyzing}
+              onStartNewAnalysis={() => setShowAnalysisModal(true)}
+              onDeleteAnalysis={handleDeleteAnalysis}
+              onOpenVariationExplorer={() =>
+                handleModeSwitch(AnalysisMode.VARIATION_EXPLORER)
+              }
+              variationExplorerAvailable={hasExistingAnalysis}
+            />
           </div>
         </div>
       ) : (
-        // No analysis yet - show analysis form (existing code)
+        // No analysis yet - show analysis form
         <div className="analysis-section">
           <div className="section-header">
             <h2>Chess Engine Analysis</h2>
@@ -1191,13 +845,15 @@ const GameAnalysisPage: React.FC = () => {
               </div>
 
               <div className="analysis-actions">
-                <button
+                <Button
+                  variant="primary"
+                  size="lg"
                   onClick={handleStartAnalysis}
                   disabled={analyzing || !engineStatus?.engineReady}
-                  className="start-analysis-button"
+                  loading={analyzing}
                 >
-                  {analyzing ? "Analyzing..." : "Start Analysis"}
-                </button>
+                  Start Analysis
+                </Button>
               </div>
             </div>
 
@@ -1205,854 +861,53 @@ const GameAnalysisPage: React.FC = () => {
             {analyzing && analysisProgress && (
               <div className="analysis-progress">
                 <h4>Analysis Progress</h4>
-                <div className="progress-bar">
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${analysisProgress.percentage}%` }}
-                  />
-                </div>
-                <div className="progress-text">
-                  {analysisProgress.message} ({analysisProgress.percentage}%)
-                </div>
+                <ProgressBar
+                  value={analysisProgress.percentage}
+                  label={analysisProgress.message}
+                  showPercentage
+                  animated
+                />
               </div>
             )}
           </div>
         </div>
       )}
 
-      <style>{`
-        .game-analysis-page {
-          max-width: 1400px;
-          margin: 0 auto;
-          padding: 20px;
-        }
-
-        .page-header {
-          margin-bottom: 30px;
-          padding-bottom: 20px;
-          border-bottom: 2px solid #e9ecef;
-        }
-
-        .page-header h1 {
-          margin: 0 0 10px 0;
-          color: #2c3e50;
-        }
-
-        .game-info {
-          display: flex;
-          gap: 20px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-
-        .players {
-          font-weight: bold;
-          font-size: 1.1em;
-          color: #2c3e50;
-        }
-
-        .result {
-          background: #e9ecef;
-          padding: 4px 12px;
-          border-radius: 20px;
-          font-weight: bold;
-        }
-
-        .date {
-          color: #6c757d;
-          font-size: 0.9em;
-        }
-
-        /* 🆕 Analysis Mode Selector */
-        .analysis-mode-selector {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 20px;
-          justify-content: center;
-        }
-
-        .mode-button {
-          padding: 10px 20px;
-          border: 2px solid #007bff;
-          background: white;
-          color: #007bff;
-          border-radius: 8px;
-          cursor: pointer;
-          font-weight: bold;
-          transition: all 0.2s;
-        }
-
-        .mode-button:hover:not(:disabled) {
-          background: #f8f9fa;
-        }
-
-        .mode-button.active {
-          background: #007bff;
-          color: white;
-        }
-
-        .mode-button:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-          border-color: #6c757d;
-          color: #6c757d;
-        }
-
-        .engine-status {
-          background: #f8f9fa;
-          padding: 20px;
-          border-radius: 8px;
-          margin-bottom: 20px;
-        }
-
-        .engine-status h3 {
-          margin: 0 0 15px 0;
-          color: #2c3e50;
-        }
-
-        /* 🆕 Status Grid */
-        .status-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-          gap: 15px;
-        }
-
-        .status-item {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .status-label {
-          font-weight: bold;
-          color: #495057;
-          font-size: 0.9em;
-        }
-
-        .status {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .status.ready {
-          color: #28a745;
-        }
-
-        .status.error {
-          color: #dc3545;
-        }
-
-        .status.loading {
-          color: #6c757d;
-        }
-
-        .status-indicator {
-          font-size: 1.2em;
-        }
-
-        .alert {
-          padding: 15px;
-          border-radius: 8px;
-          margin-bottom: 20px;
-        }
-
-        .alert.error {
-          background: #f8d7da;
-          color: #721c24;
-          border: 1px solid #f5c6cb;
-        }
-
-        .alert.success {
-          background: #d4edda;
-          color: #155724;
-          border: 1px solid #c3e6cb;
-        }
-
-        /* Analysis View Layout */
-        .analysis-view {
-          display: grid;
-          grid-template-columns: minmax(400px, 500px) 1fr;
-          gap: 30px;
-          margin-top: 20px;
-        }
-
-        .board-section {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-
-        .board-container {
-          display: flex;
-          justify-content: center;
-        }
-
-        .board-controls {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .nav-button {
-          background: #007bff;
-          color: white;
-          border: none;
-          padding: 8px 12px;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 1.2em;
-          transition: background 0.2s;
-        }
-
-        .nav-button:hover:not(:disabled) {
-          background: #0056b3;
-        }
-
-        .nav-button:disabled {
-          background: #6c757d;
-          cursor: not-allowed;
-          opacity: 0.6;
-        }
-
-        .move-counter {
-          background: #f8f9fa;
-          padding: 8px 12px;
-          border-radius: 4px;
-          font-weight: bold;
-          color: #495057;
-          min-width: 80px;
-          text-align: center;
-        }
-
-        .board-options {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          gap: 15px;
-          flex-wrap: wrap;
-        }
-
-        .option-button {
-          background: #6c757d;
-          color: white;
-          border: none;
-          padding: 6px 12px;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 0.9em;
-        }
-
-        .option-button:hover {
-          background: #5a6268;
-        }
-
-        .option-checkbox {
-          display: flex;
-          align-items: center;
-          gap: 5px;
-          font-size: 0.9em;
-          color: #495057;
-          cursor: pointer;
-        }
-
-        .option-checkbox input {
-          cursor: pointer;
-        }
-
-        .current-move-info {
-          background: #f8f9fa;
-          padding: 15px;
-          border-radius: 8px;
-          border-left: 4px solid #007bff;
-        }
-
-        .current-move-info h4 {
-          margin: 0 0 15px 0;
-          color: #2c3e50;
-        }
-
-        /* 🆕 Cached vs Live Analysis Styling */
-        .cached-analysis {
-          margin-bottom: 15px;
-          padding: 10px;
-          background: rgba(40, 167, 69, 0.1);
-          border-left: 3px solid #28a745;
-          border-radius: 4px;
-        }
-
-        .cached-analysis h5 {
-          margin: 0 0 8px 0;
-          color: #28a745;
-          font-size: 0.9em;
-        }
-
-        .live-analysis {
-          margin-bottom: 15px;
-          padding: 10px;
-          background: rgba(255, 193, 7, 0.1);
-          border-left: 3px solid #ffc107;
-          border-radius: 4px;
-        }
-
-        .live-analysis h5 {
-          margin: 0 0 8px 0;
-          color: #d39e00;
-          font-size: 0.9em;
-        }
-
-        .live-analysis-summary {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .analysis-line {
-          background: rgba(255, 255, 255, 0.5);
-          padding: 6px;
-          border-radius: 3px;
-          font-size: 0.8em;
-        }
-
-        .line-header {
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          margin-bottom: 3px;
-        }
-
-        .line-number {
-          font-weight: bold;
-          color: #666;
-          min-width: 20px;
-        }
-
-        .evaluation {
-          font-family: monospace;
-          min-width: 50px;
-        }
-
-        .best-move {
-          font-weight: bold;
-        }
-
-        .pv-line {
-          font-family: monospace;
-          color: #666;
-          font-size: 0.9em;
-        }
-
-        .analysis-time {
-          font-size: 0.7em;
-          color: #666;
-          text-align: right;
-        }
-
-        .analyzing-indicator {
-          color: #007bff;
-          font-style: italic;
-          text-align: center;
-          padding: 8px;
-          background: rgba(0, 123, 255, 0.1);
-          border-radius: 4px;
-        }
-
-        .move-analysis-summary {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .evaluation,
-        .best-move {
-          font-size: 0.9em;
-          color: #495057;
-        }
-
-        .mistake-badge {
-          color: white;
-          padding: 4px 8px;
-          border-radius: 12px;
-          font-size: 0.8em;
-          font-weight: bold;
-          text-transform: uppercase;
-          display: inline-block;
-          max-width: fit-content;
-        }
-
-        /* Analysis Panel */
-        .analysis-panel {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-
-        /* 🆕 Live Analysis Controls */
-        .live-analysis-controls {
-          background: #fff3cd;
-          padding: 15px;
-          border-radius: 8px;
-          border-left: 4px solid #ffc107;
-        }
-
-        .live-analysis-controls h3 {
-          margin: 0 0 15px 0;
-          color: #856404;
-        }
-
-        .controls-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 15px;
-          align-items: end;
-        }
-
-        .control-group {
-          display: flex;
-          flex-direction: column;
-          gap: 5px;
-        }
-
-        .control-group label {
-          font-size: 0.9em;
-          font-weight: bold;
-          color: #495057;
-        }
-
-        .control-group input[type="range"] {
-          width: 100%;
-        }
-
-        .analyze-now-button {
-          background: #ffc107;
-          color: #212529;
-          border: none;
-          padding: 8px 16px;
-          border-radius: 4px;
-          cursor: pointer;
-          font-weight: bold;
-          transition: background 0.2s;
-        }
-
-        .analyze-now-button:hover:not(:disabled) {
-          background: #e0a800;
-        }
-
-        .analyze-now-button:disabled {
-          background: #6c757d;
-          color: white;
-          cursor: not-allowed;
-        }
-
-        .analysis-summary {
-          background: #f8f9fa;
-          padding: 20px;
-          border-radius: 8px;
-        }
-
-        .analysis-summary h3 {
-          margin: 0 0 15px 0;
-          color: #2c3e50;
-        }
-
-        .summary-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-          gap: 10px;
-        }
-
-        .summary-item {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: 10px;
-          background: white;
-          border-radius: 6px;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-        }
-
-        .summary-item.blunders {
-          border-left: 4px solid #dc3545;
-        }
-
-        .summary-item.mistakes {
-          border-left: 4px solid #fd7e14;
-        }
-
-        .summary-item.inaccuracies {
-          border-left: 4px solid #ffc107;
-        }
-
-        .summary-item.accuracy-white,
-        .summary-item.accuracy-black {
-          border-left: 4px solid #28a745;
-        }
-
-        .summary-label {
-          font-size: 0.8em;
-          color: #6c757d;
-          margin-bottom: 4px;
-          text-align: center;
-        }
-
-        .summary-value {
-          font-weight: bold;
-          color: #2c3e50;
-          font-size: 1.1em;
-        }
-
-        /* Move List */
-        .move-list-section {
-          background: white;
-          border-radius: 8px;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-          overflow: hidden;
-        }
-
-        .move-list-section h3 {
-          margin: 0;
-          padding: 15px 20px;
-          background: #f8f9fa;
-          border-bottom: 1px solid #e9ecef;
-          color: #2c3e50;
-        }
-
-        .move-list {
-          max-height: 400px;
-          overflow-y: auto;
-        }
-
-        .move-item {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 8px 20px;
-          cursor: pointer;
-          transition: background-color 0.2s;
-          border-bottom: 1px solid #f8f9fa;
-        }
-
-        .move-item:hover {
-          background-color: #f8f9fa;
-        }
-
-        .move-item.current {
-          background-color: #e3f2fd;
-          border-left: 4px solid #2196f3;
-        }
-
-        .move-item.blunder {
-          border-left: 4px solid #dc3545;
-        }
-
-        .move-item.mistake {
-          border-left: 4px solid #fd7e14;
-        }
-
-        .move-item.inaccuracy {
-          border-left: 4px solid #ffc107;
-        }
-
-        .move-item.excellent {
-          border-left: 4px solid #28a745;
-        }
-
-        .move-number {
-          font-weight: bold;
-          color: #6c757d;
-          min-width: 35px;
-          font-size: 0.9em;
-        }
-
-        .move-notation {
-          font-weight: bold;
-          color: #2c3e50;
-          min-width: 60px;
-        }
-
-        .move-evaluation {
-          font-family: 'Courier New', monospace;
-          font-size: 0.8em;
-          background: #e9ecef;
-          padding: 2px 6px;
-          border-radius: 3px;
-          color: #495057;
-        }
-
-        .mistake-indicator {
-          font-size: 1em;
-          margin-left: auto;
-        }
-
-        /* Analysis Actions */
-        .analysis-actions {
-          display: flex;
-          gap: 10px;
-          justify-content: center;
-          flex-wrap: wrap;
-        }
-
-        .re-analyze-button,
-        .delete-analysis-button {
-          padding: 10px 20px;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 0.9em;
-          transition: background 0.2s;
-        }
-
-        .re-analyze-button {
-          background: #6c757d;
-          color: white;
-        }
-
-        .re-analyze-button:hover {
-          background: #5a6268;
-        }
-
-        .delete-analysis-button {
-          background: #dc3545;
-          color: white;
-        }
-
-        .delete-analysis-button:hover {
-          background: #c82333;
-        }
-
-        /* Original Analysis Section (for no analysis state) */
-        .analysis-section {
-          background: white;
-          padding: 30px;
-          border-radius: 12px;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        }
-
-        .section-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 20px;
-        }
-
-        .section-header h2 {
-          margin: 0;
-          color: #2c3e50;
-        }
-
-        .no-analysis {
-          text-align: center;
-          padding: 40px 20px;
-        }
-
-        .no-analysis h3 {
-          color: #2c3e50;
-          margin-bottom: 10px;
-        }
-
-        .no-analysis p {
-          color: #6c757d;
-          margin-bottom: 30px;
-        }
-
-        .analysis-options {
-          max-width: 600px;
-          margin: 0 auto;
-          text-align: left;
-        }
-
-        .analysis-options h4 {
-          margin-bottom: 20px;
-          color: #2c3e50;
-        }
-
-        .options-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 20px;
-          margin-bottom: 30px;
-        }
-
-        .option {
-          display: flex;
-          flex-direction: column;
-        }
-
-        .option label {
-          margin-bottom: 5px;
-          font-weight: 500;
-          color: #495057;
-        }
-
-        .option select {
-          padding: 8px;
-          border: 1px solid #ced4da;
-          border-radius: 4px;
-          font-size: 1em;
-        }
-
-        .option select:disabled {
-          background: #e9ecef;
-          color: #6c757d;
-        }
-
-        .start-analysis-button {
-          background: #007bff;
-          color: white;
-          border: none;
-          padding: 12px 30px;
-          border-radius: 8px;
-          font-size: 1.1em;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-
-        .start-analysis-button:hover:not(:disabled) {
-          background: #0056b3;
-        }
-
-        .start-analysis-button:disabled {
-          background: #6c757d;
-          cursor: not-allowed;
-        }
-
-        .analysis-progress {
-          margin-top: 30px;
-          padding: 20px;
-          background: #f8f9fa;
-          border-radius: 8px;
-        }
-
-        .analysis-progress h4 {
-          margin: 0 0 15px 0;
-          color: #2c3e50;
-        }
-
-        .progress-bar {
-          width: 100%;
-          height: 20px;
-          background: #e9ecef;
-          border-radius: 10px;
-          overflow: hidden;
-          margin-bottom: 10px;
-        }
-
-        .progress-fill {
-          height: 100%;
-          background: linear-gradient(90deg, #007bff, #0056b3);
-          transition: width 0.3s ease;
-        }
-
-        .progress-text {
-          text-align: center;
-          color: #495057;
-          font-weight: 500;
-        }
-
-        .loading,
-        .error {
-          text-align: center;
-          padding: 40px;
-        }
-
-        .error h2 {
-          color: #dc3545;
-          margin-bottom: 10px;
-        }
-
-        /* Responsive Design */
-        @media (max-width: 1200px) {
-          .analysis-view {
-            grid-template-columns: 1fr;
-            gap: 20px;
-          }
-
-          .board-section {
-            order: 1;
-          }
-
-          .analysis-panel {
-            order: 2;
-          }
-        }
-
-        @media (max-width: 768px) {
-          .game-analysis-page {
-            padding: 10px;
-          }
-
-          .analysis-mode-selector {
-            flex-direction: column;
-            align-items: center;
-          }
-
-          .mode-button {
-            width: 100%;
-            max-width: 250px;
-          }
-
-          .status-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .board-controls {
-            flex-wrap: wrap;
-            gap: 8px;
-          }
-
-          .nav-button {
-            padding: 6px 10px;
-            font-size: 1em;
-          }
-
-          .board-options {
-            flex-direction: column;
-            gap: 10px;
-          }
-
-          .summary-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .options-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .analysis-actions {
-            flex-direction: column;
-          }
-
-          .controls-grid {
-            grid-template-columns: 1fr;
-          }
-        }
-
-        @media (max-width: 500px) {
-          .move-item {
-            padding: 6px 15px;
-            font-size: 0.9em;
-          }
-
-          .move-number {
-            min-width: 30px;
-          }
-
-          .move-notation {
-            min-width: 50px;
-          }
-
-          .summary-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .game-info {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 10px;
-          }
-        }
-      `}</style>
+      {/* New Analysis Confirmation Modal */}
+      <Modal
+        isOpen={showAnalysisModal}
+        onClose={() => setShowAnalysisModal(false)}
+        title="Start New Analysis"
+        size="sm"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setShowAnalysisModal(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setShowAnalysisModal(false);
+                setHasExistingAnalysis(false);
+                setAnalysis(null);
+                setAnalysisResult(null);
+              }}
+            >
+              Continue
+            </Button>
+          </>
+        }
+      >
+        <Alert variant="info" hideIcon>
+          This will start a new analysis. You can configure the analysis options
+          on the next screen.
+        </Alert>
+      </Modal>
+
+      
     </div>
   );
 };

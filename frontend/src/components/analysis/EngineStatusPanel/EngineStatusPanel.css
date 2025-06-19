@@ -1,0 +1,92 @@
+/* src/components/analysis/EngineStatusPanel/EngineStatusPanel.css */
+
+.engine-status-panel {
+  background: #f8f9fa;
+  padding: 1.25rem;
+  border-radius: 8px;
+  margin-bottom: 1.25rem;
+}
+
+.engine-status-panel__title {
+  margin: 0 0 1rem 0;
+  color: #2c3e50;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.engine-status-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.status-label {
+  font-weight: 600;
+  color: #495057;
+  font-size: 0.875rem;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.status--ready {
+  color: #28a745;
+}
+
+.status--error {
+  color: #dc3545;
+}
+
+.status-indicator {
+  font-size: 1.125rem;
+  flex-shrink: 0;
+}
+
+.status-text {
+  font-weight: 500;
+  font-size: 0.9375rem;
+}
+
+.engine-status-panel__alert {
+  margin-bottom: 0;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .engine-status-panel {
+    background: #1f2937;
+  }
+
+  .engine-status-panel__title {
+    color: #f9fafb;
+  }
+
+  .status-label {
+    color: #d1d5db;
+  }
+
+  .status--ready {
+    color: #34d399;
+  }
+
+  .status--error {
+    color: #f87171;
+  }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .engine-status-panel__grid {
+    grid-template-columns: 1fr;
+  }
+}

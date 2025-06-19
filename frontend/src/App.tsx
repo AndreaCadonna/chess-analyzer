@@ -7,7 +7,7 @@ import ImportPage from "./pages/ImportPage";
 import GamesList from "./pages/GamesList";
 import "./App.css";
 import GameAnalysisPage from "./pages/GameAnalysisPage";
-import LiveAnalysisTest from "./components/LiveAnalysisTest";
+import Button from "./components/ui/Button";
 
 interface HealthStatus {
   status: string;
@@ -139,12 +139,16 @@ const HomePage = () => {
         <div className="cta-section">
           <h3>Get Started</h3>
           <p>Ready to analyze your chess games?</p>
-          <Link to="/users" className="cta-button">
+          <Button 
+            as={Link} 
+            to="/users" 
+            variant="primary" 
+            size="lg"
+            rightIcon={<span>→</span>}
+          >
             Manage Users & Import Games
-          </Link>
+          </Button>
         </div>
-
-        <LiveAnalysisTest></LiveAnalysisTest>
 
         <div className="status-section">
           <h3>📈 Development Status</h3>

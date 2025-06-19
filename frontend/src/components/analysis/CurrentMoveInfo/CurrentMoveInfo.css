@@ -1,0 +1,263 @@
+/* src/components/analysis/CurrentMoveInfo/CurrentMoveInfo.css */
+
+.current-move-info {
+  background: #f8f9fa;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid #007bff;
+}
+
+.current-move-info__title {
+  margin: 0 0 1rem 0;
+  color: #2c3e50;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+/* Analysis Sections */
+.cached-analysis {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: rgba(40, 167, 69, 0.1);
+  border-left: 3px solid #28a745;
+  border-radius: 4px;
+}
+
+.live-analysis {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: rgba(255, 193, 7, 0.1);
+  border-left: 3px solid #ffc107;
+  border-radius: 4px;
+}
+
+.analysis-section-title {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.cached-analysis .analysis-section-title {
+  color: #28a745;
+}
+
+.live-analysis .analysis-section-title {
+  color: #d39e00;
+}
+
+/* Analysis Summary */
+.analysis-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.analysis-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.analysis-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  font-weight: 500;
+  min-width: 5rem;
+}
+
+.analysis-value {
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  font-size: 0.875rem;
+  color: #2c3e50;
+}
+
+.mistake-badge {
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Live Analysis Lines */
+.live-analysis-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.analysis-line {
+  background: rgba(255, 255, 255, 0.6);
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+}
+
+.line-header {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.line-number {
+  font-weight: 600;
+  color: #6b7280;
+  min-width: 1.5rem;
+  font-size: 0.75rem;
+}
+
+.line-evaluation {
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  min-width: 3.5rem;
+}
+
+.line-move {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.line-pv {
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  color: #6b7280;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  padding-left: 2.25rem;
+}
+
+.analysis-time {
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-align: right;
+  font-style: italic;
+}
+
+/* Analyzing Indicator */
+.analyzing-indicator {
+  padding: 0.75rem;
+  background: rgba(0, 123, 255, 0.1);
+  border-radius: 4px;
+  text-align: center;
+}
+
+/* No Analysis State */
+.no-analysis {
+  padding: 1rem;
+  text-align: center;
+  background: rgba(108, 117, 125, 0.1);
+  border-radius: 4px;
+}
+
+.no-analysis-text {
+  margin: 0;
+  color: #6b7280;
+  font-style: italic;
+  font-size: 0.875rem;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .current-move-info {
+    background: #1f2937;
+    border-left-color: #3b82f6;
+  }
+
+  .current-move-info__title {
+    color: #f9fafb;
+  }
+
+  .cached-analysis {
+    background: rgba(34, 197, 94, 0.15);
+    border-left-color: #22c55e;
+  }
+
+  .live-analysis {
+    background: rgba(251, 191, 36, 0.15);
+    border-left-color: #fbbf24;
+  }
+
+  .cached-analysis .analysis-section-title {
+    color: #22c55e;
+  }
+
+  .live-analysis .analysis-section-title {
+    color: #fbbf24;
+  }
+
+  .analysis-label {
+    color: #9ca3af;
+  }
+
+  .analysis-value,
+  .line-move {
+    color: #f9fafb;
+  }
+
+  .line-pv,
+  .analysis-time,
+  .no-analysis-text {
+    color: #9ca3af;
+  }
+
+  .analysis-line {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .analyzing-indicator {
+    background: rgba(59, 130, 246, 0.15);
+  }
+
+  .no-analysis {
+    background: rgba(156, 163, 175, 0.1);
+  }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .current-move-info {
+    padding: 0.875rem;
+  }
+
+  .current-move-info__title {
+    font-size: 1rem;
+  }
+
+  .analysis-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .analysis-label {
+    min-width: auto;
+  }
+
+  .line-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .line-pv {
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .analysis-summary {
+    gap: 0.75rem;
+  }
+
+  .live-analysis-lines {
+    gap: 0.75rem;
+  }
+
+  .analysis-line {
+    padding: 0.75rem;
+  }
+}

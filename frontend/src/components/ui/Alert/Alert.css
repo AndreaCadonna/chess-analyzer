@@ -1,0 +1,233 @@
+/* src/components/ui/Alert/Alert.css */
+
+/* Base alert styles */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid;
+  margin-bottom: 1rem;
+  position: relative;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Icon container */
+.alert__icon {
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.125rem; /* Align with first line of text */
+}
+
+.alert__icon-svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Content area */
+.alert__content {
+  flex: 1;
+  min-width: 0; /* Prevent flex item from overflowing */
+}
+
+.alert__title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  font-size: 0.9375rem;
+}
+
+.alert__message {
+  margin: 0;
+}
+
+.alert__message p {
+  margin: 0;
+}
+
+.alert__message p:not(:last-child) {
+  margin-bottom: 0.5rem;
+}
+
+/* Close button */
+.alert__close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  margin: -0.25rem -0.25rem -0.25rem 0;
+  transition: background-color 0.2s ease;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.alert__close:hover {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.alert__close:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.alert__close-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* Dismissible alerts - add padding for close button */
+.alert--dismissible {
+  padding-right: 2.5rem;
+}
+
+/* Success variant */
+.alert--success {
+  background-color: #f0f9ff;
+  border-color: #7dd3fc;
+  color: #0c4a6e;
+}
+
+.alert--success .alert__icon {
+  color: #0ea5e9;
+}
+
+.alert--success .alert__title {
+  color: #0c4a6e;
+}
+
+.alert--success .alert__close:hover {
+  background-color: rgba(14, 165, 233, 0.1);
+}
+
+/* Error variant */
+.alert--error {
+  background-color: #fef2f2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.alert--error .alert__icon {
+  color: #ef4444;
+}
+
+.alert--error .alert__title {
+  color: #991b1b;
+}
+
+.alert--error .alert__close:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+/* Warning variant */
+.alert--warning {
+  background-color: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.alert--warning .alert__icon {
+  color: #f59e0b;
+}
+
+.alert--warning .alert__title {
+  color: #92400e;
+}
+
+.alert--warning .alert__close:hover {
+  background-color: rgba(245, 158, 11, 0.1);
+}
+
+/* Info variant */
+.alert--info {
+  background-color: #f0f9ff;
+  border-color: #7dd3fc;
+  color: #1e40af;
+}
+
+.alert--info .alert__icon {
+  color: #3b82f6;
+}
+
+.alert--info .alert__title {
+  color: #1e40af;
+}
+
+.alert--info .alert__close:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .alert--success {
+    background-color: rgba(14, 165, 233, 0.1);
+    border-color: rgba(14, 165, 233, 0.3);
+    color: #7dd3fc;
+  }
+
+  .alert--error {
+    background-color: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+  }
+
+  .alert--warning {
+    background-color: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.3);
+    color: #fcd34d;
+  }
+
+  .alert--info {
+    background-color: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #93c5fd;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .alert {
+    padding: 0.875rem;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+  }
+
+  .alert__icon {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  .alert__title {
+    font-size: 0.875rem;
+  }
+
+  .alert--dismissible {
+    padding-right: 2.25rem;
+  }
+}
+
+/* Animation for new alerts */
+@keyframes alertSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.alert {
+  animation: alertSlideIn 0.2s ease-out;
+}
+
+/* Focus management for accessibility */
+.alert:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

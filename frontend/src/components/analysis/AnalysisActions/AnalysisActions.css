@@ -1,0 +1,275 @@
+/* src/components/analysis/AnalysisActions/AnalysisActions.css */
+
+.analysis-actions {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.analysis-actions__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.analysis-actions__title {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.analysis-actions__status {
+  display: flex;
+  align-items: center;
+}
+
+.status-badge {
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.375rem 0.75rem;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.status-badge--success {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.status-badge--analyzing {
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.analysis-actions__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.action-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.action-group__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #374151;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #f3f4f6;
+}
+
+.action-group--primary .action-group__title {
+  color: #059669;
+  border-bottom-color: rgba(16, 185, 129, 0.2);
+}
+
+.action-group--secondary .action-group__title {
+  color: #6b7280;
+  border-bottom-color: #e5e7eb;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.analysis-actions__info {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 1rem;
+}
+
+/* Modal Content */
+.delete-modal-content,
+.new-analysis-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.delete-items-list,
+.analysis-items-list {
+  margin: 0;
+  padding-left: 1.5rem;
+  color: #4b5563;
+}
+
+.delete-items-list li,
+.analysis-items-list li {
+  margin-bottom: 0.5rem;
+  line-height: 1.5;
+}
+
+/* Keyboard shortcuts styling */
+kbd {
+  background-color: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 3px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+  color: #374151;
+  display: inline-block;
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.25rem 0.375rem;
+  text-transform: uppercase;
+  margin: 0 0.125rem;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .analysis-actions {
+    background: #1f2937;
+  }
+
+  .analysis-actions__title {
+    color: #f9fafb;
+  }
+
+  .status-badge--success {
+    background: rgba(52, 211, 153, 0.15);
+    color: #34d399;
+    border-color: rgba(52, 211, 153, 0.3);
+  }
+
+  .status-badge--analyzing {
+    background: rgba(96, 165, 250, 0.15);
+    color: #60a5fa;
+    border-color: rgba(96, 165, 250, 0.3);
+  }
+
+  .action-group__title {
+    color: #e5e7eb;
+    border-bottom-color: #4b5563;
+  }
+
+  .action-group--primary .action-group__title {
+    color: #34d399;
+    border-bottom-color: rgba(52, 211, 153, 0.3);
+  }
+
+  .action-group--secondary .action-group__title {
+    color: #9ca3af;
+    border-bottom-color: #6b7280;
+  }
+
+  .analysis-actions__info {
+    border-top-color: #4b5563;
+  }
+
+  .delete-items-list,
+  .analysis-items-list {
+    color: #d1d5db;
+  }
+
+  kbd {
+    background-color: #4b5563;
+    border-color: #6b7280;
+    color: #f3f4f6;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .analysis-actions {
+    padding: 1.25rem;
+  }
+
+  .analysis-actions__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .analysis-actions__grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+
+  .action-buttons {
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .analysis-actions {
+    padding: 1rem;
+  }
+
+  .analysis-actions__title {
+    font-size: 1rem;
+  }
+
+  .action-group__title {
+    font-size: 0.9375rem;
+  }
+
+  .status-badge {
+    font-size: 0.8125rem;
+    padding: 0.25rem 0.5rem;
+  }
+
+  .delete-items-list,
+  .analysis-items-list {
+    padding-left: 1.25rem;
+  }
+
+  kbd {
+    font-size: 0.6875rem;
+    padding: 0.1875rem 0.3125rem;
+  }
+}
+
+/* Animation for status badges */
+.status-badge--analyzing {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* Focus states for accessibility */
+.action-group:focus-within .action-group__title {
+  color: #2563eb;
+}
+
+/* Hover effects for action groups */
+.action-group {
+  transition: transform 0.2s ease;
+}
+
+.action-group:hover {
+  transform: translateY(-1px);
+}
+
+/* Enhanced button spacing in action groups */
+.action-buttons > * {
+  transition: transform 0.2s ease;
+}
+
+.action-buttons > *:hover:not(:disabled) {
+  transform: translateY(-1px);
+}

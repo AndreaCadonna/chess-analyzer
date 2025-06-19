@@ -1,0 +1,110 @@
+/* src/components/chess/BoardSection/BoardSection.css */
+
+.board-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.board-section__container {
+  display: flex;
+  justify-content: center;
+}
+
+.board-section__controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.board-section__move-counter {
+  background: #f8f9fa;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-weight: 600;
+  color: #495057;
+  min-width: 4rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid #e9ecef;
+}
+
+.board-section__move-counter .separator {
+  margin: 0 0.25rem;
+  opacity: 0.6;
+}
+
+.board-section__options {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.board-section__option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #495057;
+  cursor: pointer;
+  user-select: none;
+}
+
+.board-section__option input[type="checkbox"] {
+  cursor: pointer;
+  margin: 0;
+}
+
+.option-text {
+  font-weight: 500;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .board-section__move-counter {
+    background: #374151;
+    color: #d1d5db;
+    border-color: #4b5563;
+  }
+
+  .board-section__option {
+    color: #d1d5db;
+  }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .board-section__controls {
+    gap: 0.5rem;
+  }
+
+  .board-section__options {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .board-section__move-counter {
+    padding: 0.375rem 0.625rem;
+    font-size: 0.875rem;
+    min-width: 3.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .board-section {
+    gap: 1rem;
+  }
+
+  .board-section__controls {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .board-section__controls > :first-child {
+    order: 2; /* Move counter to top */
+  }
+}

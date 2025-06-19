@@ -1,0 +1,314 @@
+/* src/components/analysis/LiveAnalysisControls/LiveAnalysisControls.css */
+
+.live-analysis-controls {
+  background: #fff3cd;
+  padding: 1.25rem;
+  border-radius: 8px;
+  border-left: 4px solid #ffc107;
+  margin-bottom: 1.25rem;
+}
+
+.live-analysis-controls__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.live-analysis-controls__title {
+  margin: 0;
+  color: #856404;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.connection-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.connection-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.connection-indicator.connected {
+  color: #155724;
+}
+
+.connection-indicator.connected .connection-dot {
+  background-color: #28a745;
+  box-shadow: 0 0 4px rgba(40, 167, 69, 0.5);
+}
+
+.connection-indicator.disconnected {
+  color: #721c24;
+}
+
+.connection-indicator.disconnected .connection-dot {
+  background-color: #dc3545;
+  box-shadow: 0 0 4px rgba(220, 53, 69, 0.5);
+}
+
+.live-analysis-controls__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Setting Control */
+.setting-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.setting-control__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #495057;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.setting-control__value {
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  font-weight: 700;
+  color: #856404;
+}
+
+.setting-control__slider {
+  width: 100%;
+  height: 0.375rem;
+  border-radius: 0.1875rem;
+  background: rgba(0, 0, 0, 0.1);
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.setting-control__slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: #ffc107;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.setting-control__slider::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: #ffc107;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.setting-control__slider:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.setting-control__range {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #6c757d;
+  margin-top: 0.25rem;
+}
+
+/* Setting Info (for read-only settings) */
+.setting-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.setting-info__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #495057;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.setting-info__value {
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  font-weight: 700;
+  color: #856404;
+}
+
+/* Control Description */
+.control-description {
+  font-size: 0.75rem;
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* Settings Summary */
+.settings-summary {
+  background: rgba(255, 255, 255, 0.6);
+  padding: 0.875rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.settings-summary__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 0.5rem;
+}
+
+.settings-summary__items {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.summary-item {
+  font-size: 0.8125rem;
+  color: #6c757d;
+}
+
+.summary-item strong {
+  color: #495057;
+  font-weight: 600;
+}
+
+/* Status Messages */
+.status-message {
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-message--warning {
+  background: rgba(255, 193, 7, 0.2);
+  color: #856404;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.status-message--success {
+  background: rgba(40, 167, 69, 0.2);
+  color: #155724;
+  border: 1px solid rgba(40, 167, 69, 0.3);
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .live-analysis-controls {
+    background: #1f2937;
+    border-left-color: #fbbf24;
+  }
+
+  .live-analysis-controls__title {
+    color: #fbbf24;
+  }
+
+  .connection-indicator.connected {
+    color: #34d399;
+  }
+
+  .connection-indicator.disconnected {
+    color: #f87171;
+  }
+
+  .setting-control__label,
+  .setting-info__label,
+  .settings-summary__title {
+    color: #e5e7eb;
+  }
+
+  .setting-control__value,
+  .setting-info__value {
+    color: #fbbf24;
+  }
+
+  .control-description,
+  .setting-control__range {
+    color: #9ca3af;
+  }
+
+  .settings-summary {
+    background: rgba(0, 0, 0, 0.2);
+  }
+
+  .summary-item {
+    color: #9ca3af;
+  }
+
+  .summary-item strong {
+    color: #e5e7eb;
+  }
+
+  .status-message--warning {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+    border-color: rgba(251, 191, 36, 0.3);
+  }
+
+  .status-message--success {
+    background: rgba(52, 211, 153, 0.15);
+    color: #34d399;
+    border-color: rgba(52, 211, 153, 0.3);
+  }
+
+  .setting-control__slider {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .live-analysis-controls__header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .live-analysis-controls__grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .settings-summary__items {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .live-analysis-controls {
+    padding: 1rem;
+  }
+
+  .setting-control__label,
+  .setting-info__label {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+}

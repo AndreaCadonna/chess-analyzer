@@ -1,0 +1,243 @@
+/* src/components/ui/Button/Button.css */
+
+/* Base button styles */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  position: relative;
+  white-space: nowrap;
+  user-select: none;
+  outline: none;
+  
+  /* Focus styles for accessibility */
+  &:focus-visible {
+    outline: 2px solid var(--color-primary, #007bff);
+    outline-offset: 2px;
+  }
+}
+
+/* Size variants */
+.btn--sm {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  min-height: 2rem;
+}
+
+.btn--md {
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  min-height: 2.5rem;
+}
+
+.btn--lg {
+  padding: 1rem 2rem;
+  font-size: 1.125rem;
+  min-height: 3rem;
+}
+
+/* Full width */
+.btn--full-width {
+  width: 100%;
+}
+
+/* Primary variant */
+.btn--primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: 1px solid transparent;
+}
+
+.btn--primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn--primary:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+}
+
+/* Secondary variant */
+.btn--secondary {
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background-color: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.btn--secondary:active:not(:disabled) {
+  background-color: #d1d5db;
+}
+
+/* Danger variant */
+.btn--danger {
+  background-color: #ef4444;
+  color: white;
+  border: 1px solid transparent;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background-color: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.btn--danger:active:not(:disabled) {
+  background-color: #b91c1c;
+  transform: translateY(0);
+}
+
+/* Ghost variant */
+.btn--ghost {
+  background-color: transparent;
+  color: #374151;
+  border: 1px solid transparent;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background-color: #f3f4f6;
+}
+
+.btn--ghost:active:not(:disabled) {
+  background-color: #e5e7eb;
+}
+
+/* Outline variant */
+.btn--outline {
+  background-color: transparent;
+  color: #667eea;
+  border: 1px solid #667eea;
+}
+
+.btn--outline:hover:not(:disabled) {
+  background-color: #667eea;
+  color: white;
+}
+
+.btn--outline:active:not(:disabled) {
+  background-color: #5a67d8;
+  border-color: #5a67d8;
+}
+
+/* Disabled state */
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Loading state */
+.btn--loading {
+  cursor: not-allowed;
+  position: relative;
+}
+
+.btn__text--loading {
+  opacity: 0.7;
+}
+
+/* Icons */
+.btn__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.btn__icon--left {
+  margin-right: -0.25rem;
+}
+
+.btn__icon--right {
+  margin-left: -0.25rem;
+}
+
+/* Size-specific icon adjustments */
+.btn--sm .btn__icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.btn--md .btn__icon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.btn--lg .btn__icon {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* Loading spinner */
+.btn__spinner {
+  position: absolute;
+  left: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn__spinner-icon {
+  width: 1rem;
+  height: 1rem;
+  animation: spin 1s linear infinite;
+}
+
+.btn__spinner-circle {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: progress 2s ease-in-out infinite;
+}
+
+/* Animations */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes progress {
+  0% {
+    stroke-dashoffset: 60;
+  }
+  50% {
+    stroke-dashoffset: 15;
+  }
+  100% {
+    stroke-dashoffset: 60;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .btn--lg {
+    padding: 0.875rem 1.5rem;
+    font-size: 1rem;
+    min-height: 2.75rem;
+  }
+  
+  .btn--md {
+    padding: 0.625rem 1.25rem;
+    font-size: 0.9375rem;
+    min-height: 2.25rem;
+  }
+}

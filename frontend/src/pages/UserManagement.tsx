@@ -7,8 +7,8 @@ import {
   deleteUser,
   validateChessComUsername,
 } from "../services/api";
-
 import type { User, CreateUserRequest } from "../types/api";
+import "./UserManagement.css";
 
 const UserManagement: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);

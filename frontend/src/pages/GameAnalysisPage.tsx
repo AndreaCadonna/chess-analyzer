@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// frontend/src/pages/GameAnalysisPage.tsx - Refactored with UI Components
+// frontend/src/pages/GameAnalysisPage.tsx - Updated with separated styling
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Chess } from "chess.js";
@@ -23,7 +23,6 @@ import Modal from "../components/ui/Modal";
 import ProgressBar from "../components/ui/ProgressBar";
 
 // Import Analysis Components
-
 import EngineStatusPanel from "../components/analysis/EngineStatusPanel/EngineStatusPanel";
 import LiveAnalysisControls from "../components/analysis/LiveAnalysisControls/LiveAnalysisControls";
 import AnalysisSummary from "../components/analysis/AnalysisSummary/AnalysisSummary";
@@ -715,7 +714,7 @@ const GameAnalysisPage: React.FC = () => {
               onToggleBestMoveArrow={setShowBestMoveArrow}
               autoAnalyzeEnabled={autoAnalyzeEnabled}
               onToggleAutoAnalyze={setAutoAnalyzeEnabled}
-              boardWidth={450}
+              boardWidth={500}
             />
 
             <CurrentMoveInfo
@@ -906,8 +905,6 @@ const GameAnalysisPage: React.FC = () => {
           on the next screen.
         </Alert>
       </Modal>
-
-      
     </div>
   );
 };

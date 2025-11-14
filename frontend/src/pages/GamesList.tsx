@@ -1,43 +1,37 @@
-// frontend/src/pages/GamesList.tsx - Complete updated version with analysis functionality
+// frontend/src/pages/GamesList.tsx - Refactored with custom hooks and utilities
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { getUserGames, getUser, deleteGame } from "../services/api";
-import { getAnalysisStatus } from "../services/analysisApi"; // 🆕 New import
+import { getAnalysisStatus } from "../services/analysisApi";
+import { usePagination } from "../hooks";
+import { formatTimeControl, formatDate, getPlayerColor } from "../utils";
 import type { User, Game } from "../types/api";
+
+const GAMES_PER_PAGE = 20;
 
 const GamesList: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
 
+  // Core state
   const [user, setUser] = useState<User | null>(null);
   const [games, setGames] = useState<Game[]>([]);
+  const [totalGames, setTotalGames] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   // Analysis status tracking
   const [analysisStatus, setAnalysisStatus] = useState<
-    Record<
-      string,
-      {
-        hasAnalysis: boolean;
-        isAnalyzing: boolean;
-      }
-    >
+    Record<string, { hasAnalysis: boolean; isAnalyzing: boolean }>
   >({});
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [totalGames, setTotalGames] = useState(0);
-  const gamesPerPage = 20;
+  // Pagination using custom hook
+  const pagination = usePagination({ itemsPerPage: GAMES_PER_PAGE });
 
-  // 🆕 Load analysis status for games
+  // Load analysis status for games
   const loadAnalysisStatus = useCallback(async (gamesArray: Game[]) => {
-    const statusMap: Record<
-      string,
-      { hasAnalysis: boolean; isAnalyzing: boolean }
-    > = {};
+    const statusMap: Record<string, { hasAnalysis: boolean; isAnalyzing: boolean }> = {};
 
     try {
       const statusPromises = gamesArray.map(async (game) => {
@@ -49,20 +43,12 @@ const GamesList: React.FC = () => {
             isAnalyzing: status.isAnalyzing,
           };
         } catch (error) {
-          console.warn(
-            `Failed to get analysis status for game ${game.id}:`,
-            error
-          );
-          return {
-            gameId: game.id,
-            hasAnalysis: false,
-            isAnalyzing: false,
-          };
+          console.warn(`Failed to get analysis status for game ${game.id}:`, error);
+          return { gameId: game.id, hasAnalysis: false, isAnalyzing: false };
         }
       });
 
       const results = await Promise.all(statusPromises);
-
       results.forEach((result) => {
         statusMap[result.gameId] = {
           hasAnalysis: result.hasAnalysis,
@@ -76,6 +62,7 @@ const GamesList: React.FC = () => {
     }
   }, []);
 
+  // Load user and games
   const loadUserAndGames = useCallback(async () => {
     if (!userId) {
       setError("No user ID provided");
@@ -87,27 +74,16 @@ const GamesList: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      console.log("Loading user and games for userId:", userId);
-
-      // Load user data and games in parallel
       const [userData, gamesData] = await Promise.all([
         getUser(userId),
-        getUserGames(userId, gamesPerPage, currentPage * gamesPerPage),
+        getUserGames(userId, pagination.itemsPerPage, pagination.offset),
       ]);
 
-      console.log("User data loaded:", userData);
-      console.log("Games data loaded:", gamesData);
-
       setUser(userData);
-
-      // Safety check: ensure games is always an array
       const gamesArray = Array.isArray(gamesData.games) ? gamesData.games : [];
       setGames(gamesArray);
-
-      setHasMore(gamesData.pagination?.hasMore || false);
       setTotalGames(gamesData.pagination?.total || 0);
 
-      // Load analysis status for each game 🆕
       await loadAnalysisStatus(gamesArray);
     } catch (err) {
       console.error("Error loading user and games:", err);
@@ -115,13 +91,14 @@ const GamesList: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [userId, currentPage, gamesPerPage, loadAnalysisStatus]);
+  }, [userId, pagination.offset, pagination.itemsPerPage, loadAnalysisStatus]);
 
   useEffect(() => {
     if (!userId) return;
     loadUserAndGames();
-  }, [userId, currentPage, loadUserAndGames]);
+  }, [userId, pagination.currentPage, loadUserAndGames]);
 
+  // Delete game handler
   const handleDeleteGame = async (gameId: string, gameInfo: string) => {
     if (!confirm(`Are you sure you want to delete the game: ${gameInfo}?`)) {
       return;
@@ -130,72 +107,39 @@ const GamesList: React.FC = () => {
     try {
       setError(null);
       setSuccess(null);
-
       await deleteGame(gameId);
       setSuccess("Game deleted successfully");
-
-      // Reload games
       await loadUserAndGames();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete game");
     }
   };
 
-  // 🆕 Handle analyze button click
+  // Navigate to analysis
   const handleAnalyzeGame = (gameId: string) => {
     navigate(`/analysis/${gameId}`);
   };
 
-  const getResultDisplay = (
-    result: string,
-    whitePlayer: string,
-    blackPlayer: string,
-    userUsername: string
-  ) => {
-    const isPlayingWhite =
-      whitePlayer.toLowerCase() === userUsername.toLowerCase();
+  // Get result display for user's perspective
+  const getResultForUser = (game: Game, username: string): { text: string; className: string } => {
+    const playerColor = getPlayerColor(game, username);
+    if (!playerColor) return { text: 'Unknown', className: 'unknown' };
 
-    if (result === "1-0") {
-      return isPlayingWhite ? "Win" : "Loss";
-    } else if (result === "0-1") {
-      return isPlayingWhite ? "Loss" : "Win";
+    if (game.result === '1-0') {
+      return playerColor === 'white'
+        ? { text: 'Win', className: 'win' }
+        : { text: 'Loss', className: 'loss' };
+    } else if (game.result === '0-1') {
+      return playerColor === 'white'
+        ? { text: 'Loss', className: 'loss' }
+        : { text: 'Win', className: 'win' };
     } else {
-      return "Draw";
+      return { text: 'Draw', className: 'draw' };
     }
   };
 
-  const getResultClass = (
-    result: string,
-    whitePlayer: string,
-    blackPlayer: string,
-    userUsername: string
-  ) => {
-    const displayResult = getResultDisplay(
-      result,
-      whitePlayer,
-      blackPlayer,
-      userUsername
-    );
-    return displayResult.toLowerCase();
-  };
-
-  const formatTimeControl = (timeControl: string) => {
-    if (timeControl.includes("+")) {
-      const [base, increment] = timeControl.split("+");
-      const baseMin = Math.floor(parseInt(base) / 60);
-      return `${baseMin}+${increment}`;
-    } else {
-      const totalSeconds = parseInt(timeControl);
-      if (totalSeconds >= 60) {
-        const minutes = Math.floor(totalSeconds / 60);
-        return `${minutes} min`;
-      } else {
-        return `${totalSeconds}s`;
-      }
-    }
-  };
-
-  if (loading && currentPage === 0) {
+  // Loading state
+  if (loading && pagination.currentPage === 0) {
     return (
       <div className="games-list">
         <div className="loading">Loading games...</div>
@@ -203,6 +147,7 @@ const GamesList: React.FC = () => {
     );
   }
 
+  // Error state
   if (error && !user) {
     return (
       <div className="games-list">
@@ -214,6 +159,7 @@ const GamesList: React.FC = () => {
     );
   }
 
+  // No user state
   if (!user) {
     return (
       <div className="games-list">
@@ -224,6 +170,7 @@ const GamesList: React.FC = () => {
 
   return (
     <div className="games-list">
+      {/* Header */}
       <div className="page-header">
         <div className="header-main">
           <h1>Games for {user.chessComUsername}</h1>
@@ -231,7 +178,6 @@ const GamesList: React.FC = () => {
             Import More Games
           </Link>
         </div>
-
         <div className="games-stats">
           <span className="stat">Total Games: {totalGames}</span>
           <span className="stat">Showing: {games.length}</span>
@@ -244,14 +190,13 @@ const GamesList: React.FC = () => {
           <strong>Error:</strong> {error}
         </div>
       )}
-
       {success && (
         <div className="alert success">
           <strong>Success:</strong> {success}
         </div>
       )}
 
-      {/* Games Table */}
+      {/* Games Table or Empty State */}
       {!Array.isArray(games) || games.length === 0 ? (
         <div className="empty-state">
           <h3>No games found</h3>
@@ -271,31 +216,17 @@ const GamesList: React.FC = () => {
                   <th>Result</th>
                   <th>Time Control</th>
                   <th>Ratings</th>
-                  <th>Analysis</th> {/* 🆕 Updated header */}
+                  <th>Analysis</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {games.map((game) => {
-                  const opponent =
-                    game.whitePlayer.toLowerCase() ===
-                    user.chessComUsername.toLowerCase()
-                      ? game.blackPlayer
-                      : game.whitePlayer;
-
-                  const userRating =
-                    game.whitePlayer.toLowerCase() ===
-                    user.chessComUsername.toLowerCase()
-                      ? game.whiteRating
-                      : game.blackRating;
-
-                  const opponentRating =
-                    game.whitePlayer.toLowerCase() ===
-                    user.chessComUsername.toLowerCase()
-                      ? game.blackRating
-                      : game.whiteRating;
-
-                  // 🆕 Get analysis status for this game
+                  const playerColor = getPlayerColor(game, user.chessComUsername);
+                  const opponent = playerColor === 'white' ? game.blackPlayer : game.whitePlayer;
+                  const userRating = playerColor === 'white' ? game.whiteRating : game.blackRating;
+                  const opponentRating = playerColor === 'white' ? game.blackRating : game.whiteRating;
+                  const result = getResultForUser(game, user.chessComUsername);
                   const gameAnalysisStatus = analysisStatus[game.id] || {
                     hasAnalysis: false,
                     isAnalyzing: false,
@@ -304,40 +235,19 @@ const GamesList: React.FC = () => {
                   return (
                     <tr key={game.id}>
                       <td className="date-cell">
-                        {new Date(game.playedAt).toLocaleDateString()}
+                        {formatDate(game.playedAt)}
                         <br />
-                        <small>
-                          {new Date(game.playedAt).toLocaleTimeString()}
-                        </small>
+                        <small>{new Date(game.playedAt).toLocaleTimeString()}</small>
                       </td>
 
                       <td className="opponent-cell">
                         <strong>{opponent}</strong>
                         <br />
-                        <small>
-                          {game.whitePlayer.toLowerCase() ===
-                          user.chessComUsername.toLowerCase()
-                            ? "(as White)"
-                            : "(as Black)"}
-                        </small>
+                        <small>(as {playerColor === 'white' ? 'White' : 'Black'})</small>
                       </td>
 
-                      <td
-                        className={`result-cell ${getResultClass(
-                          game.result,
-                          game.whitePlayer,
-                          game.blackPlayer,
-                          user.chessComUsername
-                        )}`}
-                      >
-                        <span className="result-badge">
-                          {getResultDisplay(
-                            game.result,
-                            game.whitePlayer,
-                            game.blackPlayer,
-                            user.chessComUsername
-                          )}
-                        </span>
+                      <td className={`result-cell ${result.className}`}>
+                        <span className="result-badge">{result.text}</span>
                         <br />
                         <small className="raw-result">{game.result}</small>
                       </td>
@@ -348,29 +258,18 @@ const GamesList: React.FC = () => {
 
                       <td className="ratings-cell">
                         <div className="rating-pair">
-                          <span className="user-rating">
-                            You: {userRating || "Unrated"}
-                          </span>
-                          <span className="opponent-rating">
-                            Opp: {opponentRating || "Unrated"}
-                          </span>
+                          <span className="user-rating">You: {userRating || "Unrated"}</span>
+                          <span className="opponent-rating">Opp: {opponentRating || "Unrated"}</span>
                         </div>
                       </td>
 
-                      {/* 🆕 Analysis Status Column */}
                       <td className="analysis-cell">
                         {gameAnalysisStatus.isAnalyzing ? (
-                          <span className="analysis-status analyzing">
-                            🔄 Analyzing...
-                          </span>
+                          <span className="analysis-status analyzing">🔄 Analyzing...</span>
                         ) : gameAnalysisStatus.hasAnalysis ? (
-                          <span className="analysis-status complete">
-                            ✅ Complete
-                          </span>
+                          <span className="analysis-status complete">✅ Complete</span>
                         ) : (
-                          <span className="analysis-status none">
-                            ⚪ Not analyzed
-                          </span>
+                          <span className="analysis-status none">⚪ Not analyzed</span>
                         )}
                       </td>
 
@@ -378,15 +277,11 @@ const GamesList: React.FC = () => {
                         <div className="action-buttons">
                           <button
                             className="action-button view"
-                            onClick={() => {
-                              // TODO: Implement game view in Step 4
-                              alert("Game viewer coming in Step 4!");
-                            }}
+                            onClick={() => alert("Game viewer coming in Step 4!")}
                           >
                             View
                           </button>
 
-                          {/* 🆕 Updated analyze button */}
                           <button
                             className={`action-button analyze ${
                               gameAnalysisStatus.hasAnalysis ? "analyzed" : ""
@@ -424,33 +319,32 @@ const GamesList: React.FC = () => {
           {/* Pagination */}
           <div className="pagination">
             <button
-              onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
-              disabled={currentPage === 0 || loading}
+              onClick={pagination.prevPage}
+              disabled={!pagination.hasPrev() || loading}
               className="pagination-button"
             >
               Previous
             </button>
 
             <span className="pagination-info">
-              Page {currentPage + 1} of {Math.ceil(totalGames / gamesPerPage)}
+              Page {pagination.currentPage + 1} of {pagination.totalPages(totalGames)}
             </span>
 
             <button
-              onClick={() => setCurrentPage(currentPage + 1)}
-              disabled={!hasMore || loading}
+              onClick={pagination.nextPage}
+              disabled={!pagination.hasNext(totalGames) || loading}
               className="pagination-button"
             >
               Next
             </button>
           </div>
 
-          {loading && (
-            <div className="loading-overlay">Loading more games...</div>
-          )}
+          {loading && <div className="loading-overlay">Loading more games...</div>}
         </>
       )}
 
       <style>{`
+        /* Same styles as before - keeping them for now */
         .games-list {
           max-width: 1400px;
           margin: 0 auto;
@@ -641,7 +535,6 @@ const GamesList: React.FC = () => {
           font-size: 0.8em;
         }
 
-        /* 🆕 Analysis status styling */
         .analysis-cell {
           text-align: center;
         }
@@ -698,7 +591,6 @@ const GamesList: React.FC = () => {
           color: white;
         }
 
-        /* 🆕 Special styling for analyzed games */
         .action-button.analyze.analyzed {
           background: #6f42c1;
           color: white;

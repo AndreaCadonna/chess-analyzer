@@ -10,7 +10,7 @@ import {
   formatEvaluation,
 } from "../services/analysisApi";
 import ChessUtils from "../utils/chessUtils";
-import { useLiveAnalysis } from "../hook/useLiveAnalysis";
+import { useLiveAnalysis } from "../hooks/useLiveAnalysis";
 
 interface VariationMove {
   move: Move;

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // frontend/src/components/LiveAnalysisTest.tsx
 import React, { useState } from "react";
-import { useLiveAnalysis } from "../hook/useLiveAnalysis";
+import { useLiveAnalysis } from "../hooks/useLiveAnalysis";
 
 const LiveAnalysisTest: React.FC = () => {
   const [liveState, liveActions] = useLiveAnalysis();

@@ -211,9 +211,12 @@ export class AnalysisService {
           );
 
           // Classify the move based on evaluation difference
+          // Determine whose move it is (odd moveNumber = White, even = Black)
+          const isWhiteMove = moveIndex % 2 === 1;
           const mistakeSeverity = this.classifyMove(
             analysis.evaluation,
-            afterMoveEval.evaluation
+            afterMoveEval.evaluation,
+            isWhiteMove
           );
 
           // Store analysis in database
@@ -376,15 +379,30 @@ export class AnalysisService {
     };
   }
 
-  private classifyMove(beforeEval: number, afterEval: number): string {
+  private classifyMove(beforeEval: number, afterEval: number, isWhiteMove: boolean): string {
     // Convert evaluations to centipawns for comparison
     const beforeCp = beforeEval * 100;
     const afterCp = afterEval * 100;
 
-    // Calculate centipawn loss (from the perspective of the player who just moved)
-    // If it's white's move, a positive evaluation is good for white
-    // After white moves, we want to see how much the evaluation changed
-    const centipawnLoss = Math.abs(beforeCp - afterCp);
+    // Calculate centipawn loss from the player's perspective
+    // Stockfish evaluations are ALWAYS from White's perspective:
+    // - Positive eval = White is better
+    // - Negative eval = Black is better
+    let centipawnLoss;
+
+    if (isWhiteMove) {
+      // For White: if eval decreases, White's position worsened (bad move)
+      // beforeCp = +100 (White +1), afterCp = +50 (White +0.5) => loss = 50 cp
+      centipawnLoss = beforeCp - afterCp;
+    } else {
+      // For Black: if eval increases, White improved = Black worsened (bad move)
+      // beforeCp = +100 (White +1), afterCp = +150 (White +1.5) => loss = 50 cp for Black
+      centipawnLoss = afterCp - beforeCp;
+    }
+
+    // Only consider actual losses (positive values)
+    // If centipawnLoss is negative, the player improved their position
+    centipawnLoss = Math.max(0, centipawnLoss);
 
     if (centipawnLoss >= 300) return "blunder";
     if (centipawnLoss >= 150) return "mistake";

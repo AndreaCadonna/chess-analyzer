@@ -48,6 +48,7 @@ const GameAnalysisPage: React.FC = () => {
     "white"
   );
   const [showBestMoveArrow, setShowBestMoveArrow] = useState(true);
+  const [boardWidth, setBoardWidth] = useState<number>(400);
 
   // Analysis options
   const [analysisOptions, setAnalysisOptions] = useState({
@@ -170,6 +171,23 @@ const GameAnalysisPage: React.FC = () => {
       setBoardOrientation("white"); // Default to white for now
     }
   }, [game, gameData]);
+
+  // Calculate responsive board width
+  useEffect(() => {
+    const calculateBoardWidth = () => {
+      const container = document.querySelector('.board-container');
+      if (container) {
+        const containerWidth = container.clientWidth;
+        // Leave some padding
+        const calculatedWidth = Math.min(containerWidth - 40, 500);
+        setBoardWidth(Math.max(calculatedWidth, 280)); // Minimum 280px
+      }
+    };
+
+    calculateBoardWidth();
+    window.addEventListener('resize', calculateBoardWidth);
+    return () => window.removeEventListener('resize', calculateBoardWidth);
+  }, []);
 
   // ✅ FIXED: Separate initial loading from updates
   const loadInitialData = useCallback(async () => {
@@ -410,7 +428,7 @@ const GameAnalysisPage: React.FC = () => {
               boardOrientation={boardOrientation}
               areArrowsAllowed={true}
               // customArrows={moveArrows}
-              boardWidth={400}
+              boardWidth={boardWidth}
               customBoardStyle={{
                 borderRadius: "8px",
                 boxShadow: "0 4px 8px rgba(0,0,0,0.1)",

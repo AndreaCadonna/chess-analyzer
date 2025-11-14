@@ -4,4 +4,5 @@
 export * from './gameFormatters';
 export * from './dateUtils';
 export * from './importValidation';
+export * from './analysisTransformers';
 export * from './chessUtils';

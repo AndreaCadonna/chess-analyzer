@@ -3,5 +3,5 @@
 
 export { usePagination } from './usePagination';
 export { useLiveAnalysis } from './useLiveAnalysis';
-
-// More hooks will be added here as we extract them
+export { useChessNavigation } from './useChessNavigation';
+export { useKeyboardShortcuts } from './useKeyboardShortcuts';

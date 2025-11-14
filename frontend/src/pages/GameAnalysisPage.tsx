@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // frontend/src/pages/GameAnalysisPage.tsx - Fixed version without full page refresh
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
@@ -18,51 +17,13 @@ import {
 } from "../services/analysisApi";
 import type { Game } from "../types/api";
 import type { AnalysisProgress, EngineStatus } from "../services/analysisApi";
-
-// Standardized GameAnalysis interface that matches backend exactly
-interface GameAnalysis {
-  gameId: string;
-  totalMoves: number;
-  analyzedMoves: number;
-  accuracy: {
-    white: number;
-    black: number;
-    overall: number;
-  };
-  mistakes: {
-    blunders: number;
-    mistakes: number;
-    inaccuracies: number;
-  };
-  analysisDetails: Array<{
-    moveNumber: number;
-    playerMove: string;
-    evaluation: number;
-    bestMove: string;
-    mistakeSeverity?: string;
-    analysisDepth?: number;
-    positionFen?: string;
-    bestLine?: string;
-  }>;
-}
-
-// Simplified AnalysisResult interface for display
-interface AnalysisResult {
-  gameId: string;
-  totalPositions: number;
-  analyzedPositions: number;
-  analysisTime: number;
-  averageDepth: number;
-  mistakes: {
-    blunders: number;
-    mistakes: number;
-    inaccuracies: number;
-  };
-  accuracy: {
-    white: number;
-    black: number;
-  };
-}
+import {
+  convertToGameAnalysis,
+  calculateAnalysisResult,
+  type GameAnalysis,
+  type AnalysisResult,
+} from "../utils";
+import { useChessNavigation, useKeyboardShortcuts } from "../hooks";
 
 const GameAnalysisPage: React.FC = () => {
   const { gameId } = useParams<{ gameId: string }>();
@@ -83,7 +44,6 @@ const GameAnalysisPage: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
 
   // Chess board state
-  const [currentMoveIndex, setCurrentMoveIndex] = useState<number>(0);
   const [boardOrientation, setBoardOrientation] = useState<"white" | "black">(
     "white"
   );
@@ -136,6 +96,20 @@ const GameAnalysisPage: React.FC = () => {
     }
   }, [game?.pgn]);
 
+  // Chess navigation hook
+  const {
+    currentMoveIndex,
+    goToStart,
+    goToPrevious,
+    goToNext,
+    goToEnd,
+    goToMove,
+    isAtStart,
+    isAtEnd,
+  } = useChessNavigation({
+    totalMoves: gameData?.totalMoves || 0,
+  });
+
   // Get current position FEN
   const currentPosition = useMemo(() => {
     if (!gameData)
@@ -181,59 +155,13 @@ const GameAnalysisPage: React.FC = () => {
     return [];
   }, [showBestMoveArrow, currentMoveAnalysis?.bestMove]);
 
-  // Move navigation functions
-  const goToStart = useCallback(() => {
-    setCurrentMoveIndex(0);
-  }, []);
-
-  const goToPrevious = useCallback(() => {
-    setCurrentMoveIndex((prev) => Math.max(0, prev - 1));
-  }, []);
-
-  const goToNext = useCallback(() => {
-    setCurrentMoveIndex((prev) => {
-      if (!gameData) return prev;
-      return Math.min(gameData.totalMoves, prev + 1);
-    });
-  }, [gameData]);
-
-  const goToEnd = useCallback(() => {
-    if (!gameData) return;
-    setCurrentMoveIndex(gameData.totalMoves);
-  }, [gameData]);
-
-  const goToMove = useCallback((moveIndex: number) => {
-    setCurrentMoveIndex(moveIndex);
-  }, []);
-
   // Keyboard navigation
-  useEffect(() => {
-    const handleKeyPress = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement) return;
-
-      switch (event.key) {
-        case "ArrowLeft":
-          event.preventDefault();
-          goToPrevious();
-          break;
-        case "ArrowRight":
-          event.preventDefault();
-          goToNext();
-          break;
-        case "Home":
-          event.preventDefault();
-          goToStart();
-          break;
-        case "End":
-          event.preventDefault();
-          goToEnd();
-          break;
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyPress);
-    return () => document.removeEventListener("keydown", handleKeyPress);
-  }, [goToPrevious, goToNext, goToStart, goToEnd]);
+  useKeyboardShortcuts({
+    ArrowLeft: goToPrevious,
+    ArrowRight: goToNext,
+    Home: goToStart,
+    End: goToEnd,
+  });
 
   // Set board orientation based on game
   useEffect(() => {
@@ -322,124 +250,6 @@ const GameAnalysisPage: React.FC = () => {
     loadInitialData();
   }, [loadInitialData]);
 
-  // Convert any analysis data structure to standardized GameAnalysis format
-  const convertToGameAnalysis = (
-    analysisData: any,
-    gameId: string
-  ): GameAnalysis => {
-    if (!analysisData) {
-      return createEmptyGameAnalysis(gameId);
-    }
-
-    // If it's already the correct GameAnalysis structure
-    if (
-      analysisData.gameId &&
-      analysisData.analysisDetails &&
-      Array.isArray(analysisData.analysisDetails)
-    ) {
-      return analysisData as GameAnalysis;
-    }
-
-    // If it's an array of Analysis objects (old structure), convert it
-    if (Array.isArray(analysisData)) {
-      const details = analysisData.map((move: any) => ({
-        moveNumber: move.moveNumber,
-        playerMove: move.playerMove,
-        evaluation: move.stockfishEvaluation,
-        bestMove: move.bestMove,
-        mistakeSeverity: move.mistakeSeverity,
-        analysisDepth: move.analysisDepth,
-        positionFen: move.positionFen,
-        bestLine: move.bestLine,
-      }));
-
-      // Calculate statistics from the array
-      const totalMoves = details.length;
-      const mistakes = {
-        blunders: details.filter((m: any) => m.mistakeSeverity === "blunder")
-          .length,
-        mistakes: details.filter((m: any) => m.mistakeSeverity === "mistake")
-          .length,
-        inaccuracies: details.filter(
-          (m: any) => m.mistakeSeverity === "inaccuracy"
-        ).length,
-      };
-
-      // Calculate accuracy for white and black
-      const whiteMoves = details.filter((m: any) => m.moveNumber % 2 === 1);
-      const blackMoves = details.filter((m: any) => m.moveNumber % 2 === 0);
-
-      const whiteGoodMoves = whiteMoves.filter(
-        (m: any) =>
-          m.mistakeSeverity === "good" || m.mistakeSeverity === "excellent"
-      ).length;
-      const blackGoodMoves = blackMoves.filter(
-        (m: any) =>
-          m.mistakeSeverity === "good" || m.mistakeSeverity === "excellent"
-      ).length;
-
-      const whiteAccuracy =
-        whiteMoves.length > 0 ? (whiteGoodMoves / whiteMoves.length) * 100 : 0;
-      const blackAccuracy =
-        blackMoves.length > 0 ? (blackGoodMoves / blackMoves.length) * 100 : 0;
-      const overallAccuracy =
-        totalMoves > 0
-          ? ((whiteGoodMoves + blackGoodMoves) / totalMoves) * 100
-          : 0;
-
-      return {
-        gameId,
-        totalMoves,
-        analyzedMoves: totalMoves,
-        accuracy: {
-          white: Math.round(whiteAccuracy * 100) / 100,
-          black: Math.round(blackAccuracy * 100) / 100,
-          overall: Math.round(overallAccuracy * 100) / 100,
-        },
-        mistakes,
-        analysisDetails: details,
-      };
-    }
-
-    // Unknown structure - return empty
-    console.warn("Unknown analysis data structure:", analysisData);
-    return createEmptyGameAnalysis(gameId);
-  };
-
-  const createEmptyGameAnalysis = (gameId: string): GameAnalysis => {
-    return {
-      gameId,
-      totalMoves: 0,
-      analyzedMoves: 0,
-      accuracy: { white: 0, black: 0, overall: 0 },
-      mistakes: { blunders: 0, mistakes: 0, inaccuracies: 0 },
-      analysisDetails: [],
-    };
-  };
-
-  const calculateAnalysisResult = (
-    analysisData: GameAnalysis
-  ): AnalysisResult => {
-    const details = analysisData.analysisDetails;
-
-    return {
-      gameId: analysisData.gameId,
-      totalPositions: analysisData.totalMoves,
-      analyzedPositions: analysisData.analyzedMoves,
-      analysisTime: 0, // Not available in current structure
-      averageDepth:
-        details.length > 0
-          ? details.reduce((sum, move) => sum + (move.analysisDepth || 15), 0) /
-            details.length
-          : 15,
-      mistakes: analysisData.mistakes,
-      accuracy: {
-        white: analysisData.accuracy.white,
-        black: analysisData.accuracy.black,
-      },
-    };
-  };
-
   // ✅ FIXED: Remove unnecessary reload after analysis
   const handleStartAnalysis = async () => {
     if (!gameId || !engineStatus?.engineReady) return;
@@ -500,7 +310,7 @@ const GameAnalysisPage: React.FC = () => {
       setAnalysis(null);
       setAnalysisResult(null);
       setHasExistingAnalysis(false);
-      setCurrentMoveIndex(0);
+      goToStart();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to delete analysis"
@@ -635,22 +445,16 @@ const GameAnalysisPage: React.FC = () => {
           {/* Move Navigation */}
           <div className="move-navigation">
             <div className="nav-buttons">
-              <button onClick={goToStart} disabled={currentMoveIndex === 0}>
+              <button onClick={goToStart} disabled={isAtStart}>
                 ⏪ Start
               </button>
-              <button onClick={goToPrevious} disabled={currentMoveIndex === 0}>
+              <button onClick={goToPrevious} disabled={isAtStart}>
                 ⬅️ Previous
               </button>
-              <button
-                onClick={goToNext}
-                disabled={!gameData || currentMoveIndex >= gameData.totalMoves}
-              >
+              <button onClick={goToNext} disabled={isAtEnd}>
                 Next ➡️
               </button>
-              <button
-                onClick={goToEnd}
-                disabled={!gameData || currentMoveIndex >= gameData.totalMoves}
-              >
+              <button onClick={goToEnd} disabled={isAtEnd}>
                 End ⏩
               </button>
             </div>

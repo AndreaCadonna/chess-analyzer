@@ -1,3 +1,4 @@
+// frontend/src/pages/ImportPage.tsx - Refactored with utilities
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -6,6 +7,8 @@ import {
   validateChessComUsername,
   getImportHistory,
 } from "../services/api";
+import { formatDate, formatRelativeDate } from "../utils";
+import { prepareImportOptions } from "../utils/importValidation";
 import type { User, ImportResult } from "../types/api";
 
 interface ImportHistory {
@@ -28,24 +31,22 @@ interface ImportHistory {
 const ImportPage: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
 
+  // Core state
   const [user, setUser] = useState<User | null>(null);
+  const [importHistory, setImportHistory] = useState<ImportHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Import form state
+  // Form state
   const [importOptions, setImportOptions] = useState({
     startDate: "",
     endDate: "",
     maxGames: "",
   });
 
-  const [importHistory, setImportHistory] = useState<ImportHistory | null>(
-    null
-  );
-
-  // Import progress state
+  // Progress state
   const [importProgress, setImportProgress] = useState<{
     percentage: number;
     message: string;
@@ -54,6 +55,7 @@ const ImportPage: React.FC = () => {
 
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
+  // Load user data and import history
   const loadUserData = useCallback(async () => {
     if (!userId) {
       setError("No user ID provided");
@@ -65,22 +67,15 @@ const ImportPage: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      console.log("Loading user data for userId:", userId);
-
-      // Load user data first
       const userData = await getUser(userId);
-      console.log("User data loaded:", userData);
       setUser(userData);
 
-      // Then try to load import history
+      // Try to load import history (non-critical)
       try {
         const historyData = await getImportHistory(userId);
-        console.log("Import history loaded:", historyData);
         setImportHistory(historyData);
       } catch (historyError) {
         console.warn("Failed to load import history:", historyError);
-        // Don't fail the whole page if import history fails
-        // Set a default empty history
         setImportHistory({
           totalGames: 0,
           recentGames: [],
@@ -103,9 +98,9 @@ const ImportPage: React.FC = () => {
     loadUserData();
   }, [loadUserData]);
 
+  // Handle import submission
   const handleImport = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!user) return;
 
     try {
@@ -118,46 +113,24 @@ const ImportPage: React.FC = () => {
         status: "starting",
       });
 
-      // Validate Chess.com username still exists
+      // Validate Chess.com username
       const isValid = await validateChessComUsername(user.chessComUsername);
       if (!isValid) {
         throw new Error(`Chess.com user '${user.chessComUsername}' not found`);
       }
 
-      // Prepare import options
-      const options: {
-        startDate?: string;
-        endDate?: string;
-        maxGames?: number;
-      } = {};
-
-      if (importOptions.startDate) {
-        options.startDate = new Date(importOptions.startDate).toISOString();
-      }
-
-      if (importOptions.endDate) {
-        options.endDate = new Date(importOptions.endDate).toISOString();
-      }
-
-      if (importOptions.maxGames) {
-        const maxGames = parseInt(importOptions.maxGames);
-        if (!isNaN(maxGames) && maxGames > 0) {
-          options.maxGames = maxGames;
-        }
-      }
-
-      console.log("Starting import with options:", options);
+      // Prepare and validate options
+      const options = prepareImportOptions(importOptions);
 
       // Start import
       const result = await importUserGames(userId!, options);
-      console.log("Import completed:", result);
 
       setImportResult(result.importResult);
       setSuccess(
         `Import completed! ${result.importResult.totalImported} games imported, ${result.importResult.totalSkipped} skipped.`
       );
 
-      // Update the progress with final status
+      // Update progress with final status
       if (result.progress.length > 0) {
         const finalProgress = result.progress[result.progress.length - 1] as {
           percentage: number;
@@ -167,7 +140,7 @@ const ImportPage: React.FC = () => {
         setImportProgress(finalProgress);
       }
 
-      // Reload user data to get updated game count
+      // Reload user data
       await loadUserData();
     } catch (err) {
       console.error("Import error:", err);
@@ -183,18 +156,16 @@ const ImportPage: React.FC = () => {
     }
   };
 
+  // Reset form
   const resetForm = () => {
-    setImportOptions({
-      startDate: "",
-      endDate: "",
-      maxGames: "",
-    });
+    setImportOptions({ startDate: "", endDate: "", maxGames: "" });
     setImportProgress(null);
     setImportResult(null);
     setError(null);
     setSuccess(null);
   };
 
+  // Loading state
   if (loading) {
     return (
       <div className="import-page">
@@ -203,6 +174,7 @@ const ImportPage: React.FC = () => {
     );
   }
 
+  // Error state
   if (error && !user) {
     return (
       <div className="import-page">
@@ -215,6 +187,7 @@ const ImportPage: React.FC = () => {
     );
   }
 
+  // No user state
   if (!user) {
     return (
       <div className="import-page">
@@ -225,6 +198,7 @@ const ImportPage: React.FC = () => {
 
   return (
     <div className="import-page">
+      {/* Header */}
       <div className="import-header">
         <h1>Import Games for {user.chessComUsername}</h1>
         <p>Import your chess games from Chess.com for analysis</p>
@@ -241,9 +215,7 @@ const ImportPage: React.FC = () => {
         {importHistory?.lastImport && (
           <div className="stat">
             <span className="stat-label">Last Import:</span>
-            <span className="stat-value">
-              {new Date(importHistory.lastImport).toLocaleDateString()}
-            </span>
+            <span className="stat-value">{formatRelativeDate(importHistory.lastImport)}</span>
           </div>
         )}
       </div>
@@ -259,16 +231,14 @@ const ImportPage: React.FC = () => {
                   {game.whitePlayer} vs {game.blackPlayer}
                 </span>
                 <span className="result">{game.result}</span>
-                <span className="date">
-                  {new Date(game.playedAt).toLocaleDateString()}
-                </span>
+                <span className="date">{formatDate(game.playedAt)}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Show message if no games yet */}
+      {/* No games message */}
       {importHistory && importHistory.totalGames === 0 && (
         <div className="no-games-message">
           <h3>No games imported yet</h3>
@@ -291,10 +261,7 @@ const ImportPage: React.FC = () => {
               id="startDate"
               value={importOptions.startDate}
               onChange={(e) =>
-                setImportOptions({
-                  ...importOptions,
-                  startDate: e.target.value,
-                })
+                setImportOptions({ ...importOptions, startDate: e.target.value })
               }
               disabled={importing}
             />
@@ -333,14 +300,9 @@ const ImportPage: React.FC = () => {
           </div>
 
           <div className="form-actions">
-            <button
-              type="submit"
-              disabled={importing}
-              className="import-button primary"
-            >
+            <button type="submit" disabled={importing} className="import-button primary">
               {importing ? "Importing..." : "Start Import"}
             </button>
-
             <button
               type="button"
               onClick={resetForm}
@@ -367,42 +329,34 @@ const ImportPage: React.FC = () => {
           </div>
         )}
 
-        {/* Error Display */}
+        {/* Alerts */}
         {error && (
           <div className="alert error">
             <strong>Error:</strong> {error}
           </div>
         )}
-
-        {/* Success Display */}
         {success && (
           <div className="alert success">
             <strong>Success:</strong> {success}
           </div>
         )}
 
-        {/* Import Result Details */}
+        {/* Import Results */}
         {importResult && (
           <div className="import-results">
             <h3>Import Results</h3>
             <div className="results-grid">
               <div className="result-item">
                 <span className="result-label">Fetched:</span>
-                <span className="result-value">
-                  {importResult.totalFetched}
-                </span>
+                <span className="result-value">{importResult.totalFetched}</span>
               </div>
               <div className="result-item">
                 <span className="result-label">Imported:</span>
-                <span className="result-value">
-                  {importResult.totalImported}
-                </span>
+                <span className="result-value">{importResult.totalImported}</span>
               </div>
               <div className="result-item">
                 <span className="result-label">Skipped:</span>
-                <span className="result-value">
-                  {importResult.totalSkipped}
-                </span>
+                <span className="result-value">{importResult.totalSkipped}</span>
               </div>
               <div className="result-item">
                 <span className="result-label">Duration:</span>
@@ -702,39 +656,62 @@ const ImportPage: React.FC = () => {
         }
 
         .result-value {
-          font-size: 1.2em;
+          font-size: 1.5em;
           font-weight: bold;
           color: #333;
         }
 
         .import-errors {
           margin-top: 15px;
+          padding: 15px;
+          background: #fff3cd;
+          border: 1px solid #ffc107;
+          border-radius: 4px;
         }
 
         .import-errors h4 {
           margin: 0 0 10px 0;
-          color: #dc3545;
+          color: #856404;
         }
 
         .import-errors ul {
           margin: 0;
           padding-left: 20px;
-        }
-
-        .import-errors li {
-          color: #dc3545;
-          margin-bottom: 5px;
+          color: #856404;
         }
 
         .loading,
         .error {
           text-align: center;
           padding: 40px;
+          color: #666;
+        }
+
+        .error {
+          color: #dc3545;
         }
 
         .error h2 {
-          color: #dc3545;
           margin-bottom: 10px;
+        }
+
+        @media (max-width: 768px) {
+          .import-page {
+            padding: 10px;
+          }
+
+          .user-stats {
+            flex-direction: column;
+            gap: 15px;
+          }
+
+          .form-actions {
+            flex-direction: column;
+          }
+
+          .results-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
         }
       `}</style>
     </div>

@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// frontend/src/pages/GameAnalysisPage.tsx - Updated with separated styling
+// frontend/src/pages/GameAnalysisPage.tsx - Fixed version without full page refresh
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
+import { Chessboard } from "react-chessboard";
+import type { Square } from "react-chessboard/dist/chessboard/types";
 import { Chess } from "chess.js";
 import { getGame } from "../services/api";
 import {
@@ -10,28 +12,12 @@ import {
   getGameAnalysis,
   getAnalysisStatus,
   deleteGameAnalysis,
+  formatEvaluation,
+  getMistakeColor,
+  getMistakeIcon,
 } from "../services/analysisApi";
-import { VariationExplorer } from "../components/VariationExplorer";
 import type { Game } from "../types/api";
 import type { AnalysisProgress, EngineStatus } from "../services/analysisApi";
-import { useLiveAnalysis } from "../hook/useLiveAnalysis";
-
-// Import UI Components
-import Button from "../components/ui/Button";
-import Alert from "../components/ui/Alert";
-import Modal from "../components/ui/Modal";
-import ProgressBar from "../components/ui/ProgressBar";
-
-// Import Analysis Components
-import EngineStatusPanel from "../components/analysis/EngineStatusPanel/EngineStatusPanel";
-import LiveAnalysisControls from "../components/analysis/LiveAnalysisControls/LiveAnalysisControls";
-import AnalysisSummary from "../components/analysis/AnalysisSummary/AnalysisSummary";
-import MoveList from "../components/analysis/MoveList/MoveList";
-import CurrentMoveInfo from "../components/analysis/CurrentMoveInfo/CurrentMoveInfo";
-import AnalysisActions from "../components/analysis/AnalysisActions/AnalysisActions";
-import BoardSection from "../components/analysis/BoardSection/BoardSection";
-
-import "./GameAnalysisPage.css";
 
 // Standardized GameAnalysis interface that matches backend exactly
 interface GameAnalysis {
@@ -78,14 +64,6 @@ interface AnalysisResult {
   };
 }
 
-// Analysis Mode constants
-const AnalysisMode = {
-  GAME_ANALYSIS: "game",
-  VARIATION_EXPLORER: "explorer",
-} as const;
-
-type AnalysisMode = (typeof AnalysisMode)[keyof typeof AnalysisMode];
-
 const GameAnalysisPage: React.FC = () => {
   const { gameId } = useParams<{ gameId: string }>();
 
@@ -96,12 +74,6 @@ const GameAnalysisPage: React.FC = () => {
   const [analysis, setAnalysis] = useState<GameAnalysis | null>(null);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(
     null
-  );
-
-  // Live analysis integration
-  const [liveAnalysisState, liveAnalysisActions] = useLiveAnalysis();
-  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>(
-    AnalysisMode.GAME_ANALYSIS
   );
 
   // UI state
@@ -116,7 +88,6 @@ const GameAnalysisPage: React.FC = () => {
     "white"
   );
   const [showBestMoveArrow, setShowBestMoveArrow] = useState(true);
-  const [autoAnalyzeEnabled, setAutoAnalyzeEnabled] = useState(true);
 
   // Analysis options
   const [analysisOptions, setAnalysisOptions] = useState({
@@ -124,9 +95,6 @@ const GameAnalysisPage: React.FC = () => {
     skipOpeningMoves: 6,
     maxPositions: 30,
   });
-
-  // Modal states
-  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
 
   // Analysis progress
   const [analysisProgress, setAnalysisProgress] =
@@ -179,6 +147,7 @@ const GameAnalysisPage: React.FC = () => {
   const currentMoveAnalysis = useMemo(() => {
     if (!analysis?.analysisDetails || currentMoveIndex === 0) return null;
 
+    // Find analysis for current move (analysis is 1-indexed, our array is 0-indexed)
     return (
       analysis.analysisDetails.find(
         (detail) => detail.moveNumber === currentMoveIndex
@@ -186,88 +155,62 @@ const GameAnalysisPage: React.FC = () => {
     );
   }, [analysis?.analysisDetails, currentMoveIndex]);
 
-  // Auto-analyze current position when it changes
-  useEffect(() => {
-    if (
-      autoAnalyzeEnabled &&
-      analysisMode === AnalysisMode.GAME_ANALYSIS &&
-      liveAnalysisState.isConnected &&
-      !liveAnalysisState.isAnalyzing &&
-      currentPosition &&
-      liveAnalysisState.lastAnalyzedFen !== currentPosition
-    ) {
-      console.log(
-        `🔄 Auto-analyzing new position: ${currentPosition.substring(0, 30)}...`
-      );
-      liveAnalysisActions
-        .analyzePosition(currentPosition, {
-          depth: liveAnalysisState.settings.depth,
-          timeLimit: liveAnalysisState.settings.timeLimit,
-        })
-        .catch((error: Error) => {
-          console.error("Auto-analysis failed:", error);
-        });
-    }
-  }, [
-    currentPosition,
-    autoAnalyzeEnabled,
-    analysisMode,
-    liveAnalysisState.isConnected,
-    liveAnalysisState.isAnalyzing,
-    liveAnalysisState.lastAnalyzedFen,
-    liveAnalysisActions,
-    liveAnalysisState.settings,
-  ]);
+  // Get move arrows for best moves
+  const moveArrows = useMemo(() => {
+    if (!showBestMoveArrow || !currentMoveAnalysis?.bestMove) return [];
 
-  // Initialize live analysis session when component mounts
-  useEffect(() => {
-    if (!liveAnalysisState.sessionId) {
-      console.log("🚀 Initializing live analysis session");
-      liveAnalysisActions.createSession().catch((error: Error) => {
-        console.error("Failed to create live analysis session:", error);
-      });
-    }
+    try {
+      const move = currentMoveAnalysis.bestMove;
+      if (move.length >= 4) {
+        const fromSquare = move.substring(0, 2) as Square;
+        const toSquare = move.substring(2, 4) as Square;
 
-    // Cleanup on unmount
-    return () => {
-      if (liveAnalysisState.sessionId) {
-        liveAnalysisActions.closeSession().catch((error: Error) => {
-          console.error("Failed to close live analysis session:", error);
-        });
+        // Validate square format (a1-h8)
+        const isValidSquare = (square: string): square is Square => {
+          return /^[a-h][1-8]$/.test(square);
+        };
+
+        if (isValidSquare(fromSquare) && isValidSquare(toSquare)) {
+          return [[fromSquare, toSquare, "rgb(40, 167, 69)"]];
+        }
       }
-    };
+    } catch (error) {
+      console.warn("Error creating move arrow:", error);
+    }
+
+    return [];
+  }, [showBestMoveArrow, currentMoveAnalysis?.bestMove]);
+
+  // Move navigation functions
+  const goToStart = useCallback(() => {
+    setCurrentMoveIndex(0);
   }, []);
 
-  // Navigation functions
-  const goToMove = useCallback(
-    (moveIndex: number) => {
-      if (!gameData) return;
-      const clampedIndex = Math.max(
-        0,
-        Math.min(moveIndex, gameData.totalMoves)
-      );
-      setCurrentMoveIndex(clampedIndex);
-    },
-    [gameData]
-  );
+  const goToPrevious = useCallback(() => {
+    setCurrentMoveIndex((prev) => Math.max(0, prev - 1));
+  }, []);
 
-  const goToStart = useCallback(() => goToMove(0), [goToMove]);
+  const goToNext = useCallback(() => {
+    setCurrentMoveIndex((prev) => {
+      if (!gameData) return prev;
+      return Math.min(gameData.totalMoves, prev + 1);
+    });
+  }, [gameData]);
+
   const goToEnd = useCallback(() => {
-    if (gameData) goToMove(gameData.totalMoves);
-  }, [goToMove, gameData]);
+    if (!gameData) return;
+    setCurrentMoveIndex(gameData.totalMoves);
+  }, [gameData]);
 
-  const goToPrevious = useCallback(
-    () => goToMove(currentMoveIndex - 1),
-    [goToMove, currentMoveIndex]
-  );
-  const goToNext = useCallback(
-    () => goToMove(currentMoveIndex + 1),
-    [goToMove, currentMoveIndex]
-  );
+  const goToMove = useCallback((moveIndex: number) => {
+    setCurrentMoveIndex(moveIndex);
+  }, []);
 
   // Keyboard navigation
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement) return;
+
       switch (event.key) {
         case "ArrowLeft":
           event.preventDefault();
@@ -288,18 +231,20 @@ const GameAnalysisPage: React.FC = () => {
       }
     };
 
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
+    document.addEventListener("keydown", handleKeyPress);
+    return () => document.removeEventListener("keydown", handleKeyPress);
   }, [goToPrevious, goToNext, goToStart, goToEnd]);
 
   // Set board orientation based on game
   useEffect(() => {
     if (game && gameData) {
+      // Determine if user was playing white or black
       setBoardOrientation("white"); // Default to white for now
     }
   }, [game, gameData]);
 
-  const loadGameAndStatus = useCallback(async () => {
+  // ✅ FIXED: Separate initial loading from updates
+  const loadInitialData = useCallback(async () => {
     if (!gameId) {
       setError("No game ID provided");
       setLoading(false);
@@ -310,7 +255,7 @@ const GameAnalysisPage: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      console.log("Loading game and analysis status for gameId:", gameId);
+      console.log("Loading initial data for gameId:", gameId);
 
       // Load game data, engine status, and analysis status in parallel
       const [gameData, engineData, statusData] = await Promise.all([
@@ -344,17 +289,38 @@ const GameAnalysisPage: React.FC = () => {
         setAnalysisResult(result);
       }
     } catch (err) {
-      console.error("Error loading game and status:", err);
+      console.error("Error loading initial data:", err);
       setError(err instanceof Error ? err.message : "Failed to load game data");
     } finally {
       setLoading(false);
     }
   }, [gameId]);
 
+  // ✅ FIXED: New function to update only analysis data (no full reload)
+  const updateAnalysisData = useCallback(async (newAnalysis: GameAnalysis) => {
+    try {
+      console.log("Updating analysis data:", newAnalysis);
+
+      // Update analysis state immediately (optimistic update)
+      setAnalysis(newAnalysis);
+      const result = calculateAnalysisResult(newAnalysis);
+      setAnalysisResult(result);
+
+      // Update analysis status flag
+      setHasExistingAnalysis(true);
+
+      console.log("Analysis data updated successfully");
+    } catch (err) {
+      console.error("Error updating analysis data:", err);
+      // If something goes wrong, we can still fallback to reload
+      setError("Failed to update analysis display");
+    }
+  }, []);
+
+  // Initial load only
   useEffect(() => {
-    if (!gameId) return;
-    loadGameAndStatus();
-  }, [gameId, loadGameAndStatus]);
+    loadInitialData();
+  }, [loadInitialData]);
 
   // Convert any analysis data structure to standardized GameAnalysis format
   const convertToGameAnalysis = (
@@ -474,6 +440,7 @@ const GameAnalysisPage: React.FC = () => {
     };
   };
 
+  // ✅ FIXED: Remove unnecessary reload after analysis
   const handleStartAnalysis = async () => {
     if (!gameId || !engineStatus?.engineReady) return;
 
@@ -494,17 +461,18 @@ const GameAnalysisPage: React.FC = () => {
         result.analysis,
         gameId
       );
-      setAnalysis(standardizedAnalysis);
+
+      // ✅ FIXED: Use the new update function instead of full reload
+      await updateAnalysisData(standardizedAnalysis);
 
       const analysisResult = calculateAnalysisResult(standardizedAnalysis);
-      setAnalysisResult(analysisResult);
 
       setSuccess(
         `Analysis complete! Found ${analysisResult.mistakes.blunders} blunders and ${analysisResult.mistakes.mistakes} mistakes.`
       );
 
-      // Reload analysis data to ensure consistency
-      await loadGameAndStatus();
+      // ✅ REMOVED: No more full page reload
+      // await loadGameAndStatus(); // <-- This was causing the problem!
     } catch (err) {
       console.error("Analysis error:", err);
       setError(err instanceof Error ? err.message : "Analysis failed");
@@ -514,7 +482,12 @@ const GameAnalysisPage: React.FC = () => {
   };
 
   const handleDeleteAnalysis = async () => {
-    if (!gameId) return;
+    if (
+      !gameId ||
+      !confirm("Are you sure you want to delete the analysis for this game?")
+    ) {
+      return;
+    }
 
     try {
       setError(null);
@@ -523,7 +496,7 @@ const GameAnalysisPage: React.FC = () => {
       await deleteGameAnalysis(gameId);
       setSuccess("Analysis deleted successfully");
 
-      // Reset state
+      // Reset analysis state only (no full reload)
       setAnalysis(null);
       setAnalysisResult(null);
       setHasExistingAnalysis(false);
@@ -534,61 +507,6 @@ const GameAnalysisPage: React.FC = () => {
       );
     }
   };
-
-  // Handle live analysis settings update
-  const handleLiveAnalysisUpdate = async (
-    newSettings: Partial<typeof liveAnalysisState.settings>
-  ) => {
-    if (liveAnalysisState.isConnected) {
-      try {
-        await liveAnalysisActions.updateSettings(newSettings);
-      } catch (error) {
-        console.error("Failed to update live analysis settings:", error);
-      }
-    }
-  };
-
-  // Handle manual analysis trigger
-  const handleAnalyzeNow = async () => {
-    if (liveAnalysisState.isConnected) {
-      try {
-        await liveAnalysisActions.analyzePosition(currentPosition, {
-          depth: liveAnalysisState.settings.depth,
-          timeLimit: liveAnalysisState.settings.timeLimit,
-        });
-      } catch (error) {
-        console.error("Manual analysis failed:", error);
-      }
-    }
-  };
-
-  // Toggle between analysis modes
-  const handleModeSwitch = (newMode: AnalysisMode) => {
-    setAnalysisMode(newMode);
-
-    if (newMode === AnalysisMode.VARIATION_EXPLORER) {
-      console.log("🧪 Switching to variation explorer mode");
-    } else {
-      console.log("📊 Switching to game analysis mode");
-    }
-  };
-
-  // Get current position for variation explorer
-  const getCurrentPositionForExploration = useCallback(() => {
-    return currentPosition;
-  }, [currentPosition]);
-
-  // Prepare game line data for variation explorer
-  const gameLineForExplorer = useMemo(() => {
-    if (!analysis?.analysisDetails || !gameData?.moves) return [];
-
-    return analysis.analysisDetails.map((detail) => ({
-      moveNumber: detail.moveNumber,
-      move: gameData.moves[detail.moveNumber - 1]?.san || "",
-      fen: detail.positionFen || "",
-      evaluation: detail.evaluation,
-    }));
-  }, [analysis?.analysisDetails, gameData?.moves]);
 
   if (loading) {
     return (
@@ -601,9 +519,10 @@ const GameAnalysisPage: React.FC = () => {
   if (error && !game) {
     return (
       <div className="game-analysis-page">
-        <Alert variant="error" title="Error">
-          {error}
-        </Alert>
+        <div className="error">
+          <h2>Error</h2>
+          <p>{error}</p>
+        </div>
       </div>
     );
   }
@@ -611,7 +530,7 @@ const GameAnalysisPage: React.FC = () => {
   if (!game) {
     return (
       <div className="game-analysis-page">
-        <Alert variant="error">Game not found</Alert>
+        <div className="error">Game not found</div>
       </div>
     );
   }
@@ -632,279 +551,356 @@ const GameAnalysisPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Analysis Mode Selector */}
-      <div className="analysis-mode-selector">
-        <Button
-          variant={
-            analysisMode === AnalysisMode.GAME_ANALYSIS ? "primary" : "outline"
-          }
-          onClick={() => handleModeSwitch(AnalysisMode.GAME_ANALYSIS)}
-        >
-          📊 Game Analysis
-        </Button>
-        <Button
-          variant={
-            analysisMode === AnalysisMode.VARIATION_EXPLORER
-              ? "primary"
-              : "outline"
-          }
-          onClick={() => handleModeSwitch(AnalysisMode.VARIATION_EXPLORER)}
-          disabled={!hasExistingAnalysis}
-        >
-          🧪 Variation Explorer
-        </Button>
+      {/* Engine Status */}
+      <div className="engine-status">
+        <h3>🔥 Engine Status</h3>
+        {engineStatus ? (
+          <div
+            className={`status ${engineStatus.engineReady ? "ready" : "error"}`}
+          >
+            <span className="status-indicator">
+              {engineStatus.engineReady ? "✅" : "❌"}
+            </span>
+            <span className="status-text">
+              {engineStatus.engineReady
+                ? "Stockfish ready for analysis"
+                : "Engine not available"}
+            </span>
+          </div>
+        ) : (
+          <div className="status loading">
+            <span className="status-indicator">⏳</span>
+            <span className="status-text">Checking engine status...</span>
+          </div>
+        )}
       </div>
 
-      {/* Engine Status */}
-      <EngineStatusPanel
-        engineStatus={engineStatus}
-        liveAnalysisState={liveAnalysisState}
-      />
-
-      {/* Alerts */}
+      {/* Error/Success Messages */}
       {error && (
-        <Alert variant="error" dismissible onDismiss={() => setError(null)}>
+        <div className="error-message">
+          <span className="error-icon">❌</span>
           {error}
-        </Alert>
+        </div>
       )}
 
       {success && (
-        <Alert variant="success" dismissible onDismiss={() => setSuccess(null)}>
+        <div className="success-message">
+          <span className="success-icon">✅</span>
           {success}
-        </Alert>
-      )}
-
-      {liveAnalysisState.error && (
-        <Alert
-          variant="warning"
-          dismissible
-          onDismiss={liveAnalysisActions.clearError}
-        >
-          <strong>Live Analysis Error:</strong> {liveAnalysisState.error}
-        </Alert>
+        </div>
       )}
 
       {/* Main Content */}
-      {analysisMode === AnalysisMode.VARIATION_EXPLORER ? (
-        // Variation Explorer Mode
-        <VariationExplorer
-          initialFen={getCurrentPositionForExploration()}
-          gameLine={gameLineForExplorer}
-          onReturnToGame={() => handleModeSwitch(AnalysisMode.GAME_ANALYSIS)}
-        />
-      ) : hasExistingAnalysis && gameData ? (
-        <div className="analysis-view">
-          {/* Chess Board and Navigation */}
-          <div className="board-column">
-            <BoardSection
+      <div className="main-content">
+        {/* Left Panel - Chess Board */}
+        <div className="board-panel">
+          <div className="board-container">
+            <Chessboard
               position={currentPosition}
-              orientation={boardOrientation}
-              currentMoveIndex={currentMoveIndex}
-              totalMoves={gameData.totalMoves}
-              onGoToStart={goToStart}
-              onGoToPrevious={goToPrevious}
-              onGoToNext={goToNext}
-              onGoToEnd={goToEnd}
-              onFlipBoard={() =>
+              boardOrientation={boardOrientation}
+              areArrowsAllowed={true}
+              // customArrows={moveArrows}
+              boardWidth={400}
+              customBoardStyle={{
+                borderRadius: "8px",
+                boxShadow: "0 4px 8px rgba(0,0,0,0.1)",
+              }}
+            />
+          </div>
+
+          {/* Board Controls */}
+          <div className="board-controls">
+            <button
+              onClick={() =>
                 setBoardOrientation(
                   boardOrientation === "white" ? "black" : "white"
                 )
               }
-              showBestMoveArrow={showBestMoveArrow}
-              onToggleBestMoveArrow={setShowBestMoveArrow}
-              autoAnalyzeEnabled={autoAnalyzeEnabled}
-              onToggleAutoAnalyze={setAutoAnalyzeEnabled}
-              boardWidth={500}
-            />
-
-            <CurrentMoveInfo
-              currentMoveIndex={currentMoveIndex}
-              moveNotation={
-                currentMoveIndex > 0 && gameData.moves[currentMoveIndex - 1]
-                  ? gameData.moves[currentMoveIndex - 1].san
-                  : undefined
-              }
-              cachedAnalysis={currentMoveAnalysis || undefined}
-              liveAnalysisResult={liveAnalysisState.currentResult || undefined}
-              isAnalyzing={liveAnalysisState.isAnalyzing}
-            />
-          </div>
-
-          {/* Analysis Panel */}
-          <div className="analysis-column">
-            <LiveAnalysisControls
-              settings={liveAnalysisState.settings}
-              isConnected={liveAnalysisState.isConnected}
-              isAnalyzing={liveAnalysisState.isAnalyzing}
-              onUpdateSettings={handleLiveAnalysisUpdate}
-              onAnalyzeNow={handleAnalyzeNow}
-            />
-
-            {analysisResult && (
-              <AnalysisSummary analysisResult={analysisResult} />
-            )}
-
-            <MoveList
-              moves={gameData.moves}
-              analysisDetails={analysis?.analysisDetails || []}
-              currentMoveIndex={currentMoveIndex}
-              totalMoves={gameData.totalMoves}
-              onMoveClick={goToMove}
-            />
-
-            <AnalysisActions
-              hasAnalysis={!!analysis}
-              isAnalyzing={analyzing}
-              onStartNewAnalysis={() => setShowAnalysisModal(true)}
-              onDeleteAnalysis={handleDeleteAnalysis}
-              onOpenVariationExplorer={() =>
-                handleModeSwitch(AnalysisMode.VARIATION_EXPLORER)
-              }
-              variationExplorerAvailable={hasExistingAnalysis}
-            />
+            >
+              Flip Board
+            </button>
+            <label>
+              <input
+                type="checkbox"
+                checked={showBestMoveArrow}
+                onChange={(e) => setShowBestMoveArrow(e.target.checked)}
+              />
+              Show Best Move
+            </label>
           </div>
         </div>
-      ) : (
-        // No analysis yet - show analysis form
-        <div className="analysis-section">
-          <div className="section-header">
-            <h2>Chess Engine Analysis</h2>
-          </div>
 
-          <div className="no-analysis">
-            <h3>No Analysis Available</h3>
-            <p>
-              Analyze this game with Stockfish to find mistakes, blunders, and
-              improvements.
-            </p>
-
-            <div className="analysis-options">
-              <h4>Analysis Options</h4>
-
-              <div className="options-grid">
-                <div className="option">
-                  <label htmlFor="depth">Analysis Depth:</label>
-                  <select
-                    id="depth"
-                    value={analysisOptions.depth}
-                    onChange={(e) =>
-                      setAnalysisOptions({
-                        ...analysisOptions,
-                        depth: parseInt(e.target.value),
-                      })
-                    }
-                    disabled={analyzing}
-                  >
-                    <option value={10}>10 - Fast</option>
-                    <option value={15}>15 - Balanced</option>
-                    <option value={20}>20 - Deep</option>
-                    <option value={25}>25 - Very Deep</option>
-                  </select>
-                </div>
-
-                <div className="option">
-                  <label htmlFor="skipMoves">Skip Opening Moves:</label>
-                  <select
-                    id="skipMoves"
-                    value={analysisOptions.skipOpeningMoves}
-                    onChange={(e) =>
-                      setAnalysisOptions({
-                        ...analysisOptions,
-                        skipOpeningMoves: parseInt(e.target.value),
-                      })
-                    }
-                    disabled={analyzing}
-                  >
-                    <option value={4}>4 moves</option>
-                    <option value={6}>6 moves</option>
-                    <option value={8}>8 moves</option>
-                    <option value={10}>10 moves</option>
-                  </select>
-                </div>
-
-                <div className="option">
-                  <label htmlFor="maxPositions">Max Positions:</label>
-                  <select
-                    id="maxPositions"
-                    value={analysisOptions.maxPositions}
-                    onChange={(e) =>
-                      setAnalysisOptions({
-                        ...analysisOptions,
-                        maxPositions: parseInt(e.target.value),
-                      })
-                    }
-                    disabled={analyzing}
-                  >
-                    <option value={20}>20 - Quick</option>
-                    <option value={30}>30 - Standard</option>
-                    <option value={50}>50 - Thorough</option>
-                    <option value={100}>100 - Complete</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="analysis-actions">
-                <Button
-                  variant="primary"
-                  size="lg"
-                  onClick={handleStartAnalysis}
-                  disabled={analyzing || !engineStatus?.engineReady}
-                  loading={analyzing}
-                >
-                  Start Analysis
-                </Button>
-              </div>
+        {/* Right Panel - Analysis */}
+        <div className="analysis-panel">
+          {/* Move Navigation */}
+          <div className="move-navigation">
+            <div className="nav-buttons">
+              <button onClick={goToStart} disabled={currentMoveIndex === 0}>
+                ⏪ Start
+              </button>
+              <button onClick={goToPrevious} disabled={currentMoveIndex === 0}>
+                ⬅️ Previous
+              </button>
+              <button
+                onClick={goToNext}
+                disabled={!gameData || currentMoveIndex >= gameData.totalMoves}
+              >
+                Next ➡️
+              </button>
+              <button
+                onClick={goToEnd}
+                disabled={!gameData || currentMoveIndex >= gameData.totalMoves}
+              >
+                End ⏩
+              </button>
             </div>
 
-            {/* Analysis Progress */}
-            {analyzing && analysisProgress && (
-              <div className="analysis-progress">
-                <h4>Analysis Progress</h4>
-                <ProgressBar
-                  value={analysisProgress.percentage}
-                  label={analysisProgress.message}
-                  showPercentage
-                  animated
-                />
+            <div className="move-info">
+              Move {currentMoveIndex} of {gameData?.totalMoves || 0}
+            </div>
+          </div>
+
+          {/* Current Move Analysis */}
+          {currentMoveAnalysis ? (
+            <div className="current-move-analysis">
+              <h3>
+                Move {currentMoveAnalysis.moveNumber}:{" "}
+                {currentMoveAnalysis.playerMove}
+                {currentMoveAnalysis.mistakeSeverity && (
+                  <span
+                    className={`mistake-badge ${currentMoveAnalysis.mistakeSeverity}`}
+                    style={{
+                      color: getMistakeColor(
+                        currentMoveAnalysis.mistakeSeverity
+                      ),
+                    }}
+                  >
+                    {getMistakeIcon(currentMoveAnalysis.mistakeSeverity)}{" "}
+                    {currentMoveAnalysis.mistakeSeverity}
+                  </span>
+                )}
+              </h3>
+
+              <div className="evaluation-info">
+                <p>
+                  <strong>Evaluation:</strong>{" "}
+                  {formatEvaluation(currentMoveAnalysis.evaluation)}
+                </p>
+                <p>
+                  <strong>Best Move:</strong> {currentMoveAnalysis.bestMove}
+                </p>
+                {currentMoveAnalysis.bestLine && (
+                  <p>
+                    <strong>Best Line:</strong> {currentMoveAnalysis.bestLine}
+                  </p>
+                )}
+                <p>
+                  <strong>Analysis Depth:</strong>{" "}
+                  {currentMoveAnalysis.analysisDepth || 15} ply
+                </p>
+              </div>
+            </div>
+          ) : currentMoveIndex === 0 ? (
+            <div className="current-move-analysis">
+              <h3>Starting Position</h3>
+              <p>Navigate through the game to see move-by-move analysis.</p>
+            </div>
+          ) : (
+            <div className="current-move-analysis">
+              <h3>Move {currentMoveIndex}</h3>
+              <p>No analysis available for this move.</p>
+            </div>
+          )}
+
+          {/* Analysis Controls */}
+          <div className="analysis-controls">
+            {!hasExistingAnalysis ? (
+              <div className="start-analysis">
+                <h3>🎯 Start Analysis</h3>
+                <div className="analysis-options">
+                  <div className="option-group">
+                    <label>Analysis Depth:</label>
+                    <select
+                      value={analysisOptions.depth}
+                      onChange={(e) =>
+                        setAnalysisOptions({
+                          ...analysisOptions,
+                          depth: parseInt(e.target.value),
+                        })
+                      }
+                    >
+                      <option value={10}>10 ply (Fast)</option>
+                      <option value={15}>15 ply (Balanced)</option>
+                      <option value={20}>20 ply (Deep)</option>
+                      <option value={25}>25 ply (Maximum)</option>
+                    </select>
+                  </div>
+
+                  <div className="option-group">
+                    <label>Skip Opening Moves:</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="20"
+                      value={analysisOptions.skipOpeningMoves}
+                      onChange={(e) =>
+                        setAnalysisOptions({
+                          ...analysisOptions,
+                          skipOpeningMoves: parseInt(e.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="option-group">
+                    <label>Max Positions:</label>
+                    <input
+                      type="number"
+                      min="10"
+                      max="100"
+                      value={analysisOptions.maxPositions}
+                      onChange={(e) =>
+                        setAnalysisOptions({
+                          ...analysisOptions,
+                          maxPositions: parseInt(e.target.value) || 30,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleStartAnalysis}
+                  disabled={analyzing || !engineStatus?.engineReady}
+                  className="start-analysis-btn"
+                >
+                  {analyzing ? "🔄 Analyzing..." : "🚀 Start Analysis"}
+                </button>
+              </div>
+            ) : (
+              <div className="existing-analysis">
+                <h3>✅ Analysis Complete</h3>
+                <button
+                  onClick={handleDeleteAnalysis}
+                  className="delete-analysis-btn"
+                >
+                  🗑️ Delete Analysis
+                </button>
               </div>
             )}
+          </div>
+
+          {/* Analysis Progress */}
+          {analysisProgress && (
+            <div className="analysis-progress">
+              <h3>Analysis Progress</h3>
+              <div className="progress-bar">
+                <div
+                  className="progress-fill"
+                  style={{ width: `${analysisProgress.percentage}%` }}
+                ></div>
+              </div>
+              <p>{analysisProgress.message}</p>
+            </div>
+          )}
+
+          {/* Analysis Summary */}
+          {analysisResult && (
+            <div className="analysis-summary">
+              <h3>📊 Analysis Summary</h3>
+              <div className="summary-grid">
+                <div className="summary-item">
+                  <span className="label">Total Positions:</span>
+                  <span className="value">{analysisResult.totalPositions}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="label">Average Depth:</span>
+                  <span className="value">
+                    {analysisResult.averageDepth.toFixed(1)} ply
+                  </span>
+                </div>
+                <div className="summary-item">
+                  <span className="label">White Accuracy:</span>
+                  <span className="value">
+                    {analysisResult.accuracy.white.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="summary-item">
+                  <span className="label">Black Accuracy:</span>
+                  <span className="value">
+                    {analysisResult.accuracy.black.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="summary-item">
+                  <span className="label">Blunders:</span>
+                  <span className="value error">
+                    {analysisResult.mistakes.blunders}
+                  </span>
+                </div>
+                <div className="summary-item">
+                  <span className="label">Mistakes:</span>
+                  <span className="value warning">
+                    {analysisResult.mistakes.mistakes}
+                  </span>
+                </div>
+                <div className="summary-item">
+                  <span className="label">Inaccuracies:</span>
+                  <span className="value info">
+                    {analysisResult.mistakes.inaccuracies}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Move List */}
+      {gameData && analysis && (
+        <div className="moves-list">
+          <h3>📋 Move Analysis</h3>
+          <div className="moves-grid">
+            {gameData.moves.map((move, index) => {
+              const moveNumber = index + 1;
+              const moveAnalysis = analysis.analysisDetails.find(
+                (detail) => detail.moveNumber === moveNumber
+              );
+
+              return (
+                <div
+                  key={index}
+                  className={`move-item ${
+                    currentMoveIndex === moveNumber ? "active" : ""
+                  } ${moveAnalysis?.mistakeSeverity || ""}`}
+                  onClick={() => goToMove(moveNumber)}
+                >
+                  <div className="move-number">{moveNumber}.</div>
+                  <div className="move-notation">{move.san}</div>
+                  {moveAnalysis && (
+                    <div className="move-evaluation">
+                      <span className="evaluation">
+                        {formatEvaluation(moveAnalysis.evaluation)}
+                      </span>
+                      {moveAnalysis.mistakeSeverity && (
+                        <span
+                          className={`mistake-indicator ${moveAnalysis.mistakeSeverity}`}
+                          style={{
+                            color: getMistakeColor(
+                              moveAnalysis.mistakeSeverity
+                            ),
+                          }}
+                        >
+                          {getMistakeIcon(moveAnalysis.mistakeSeverity)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
-
-      {/* New Analysis Confirmation Modal */}
-      <Modal
-        isOpen={showAnalysisModal}
-        onClose={() => setShowAnalysisModal(false)}
-        title="Start New Analysis"
-        size="sm"
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              onClick={() => setShowAnalysisModal(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setShowAnalysisModal(false);
-                setHasExistingAnalysis(false);
-                setAnalysis(null);
-                setAnalysisResult(null);
-              }}
-            >
-              Continue
-            </Button>
-          </>
-        }
-      >
-        <Alert variant="info" hideIcon>
-          This will start a new analysis. You can configure the analysis options
-          on the next screen.
-        </Alert>
-      </Modal>
     </div>
   );
 };

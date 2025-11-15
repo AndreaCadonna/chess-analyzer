@@ -191,21 +191,32 @@ deleteGame(id: string): Promise<void>
 **Responsibilities**:
 - UCI protocol communication
 - Chess engine lifecycle management
-- Position analysis
-- Move evaluation
+- Multi-line position analysis (MultiPV)
+- Move evaluation with multiple variations
 - Health monitoring and auto-restart
 
 **Key Features**:
 - **Process Management**: Spawns and manages Stockfish process
 - **UCI Protocol**: Sends commands (uci, position, go, quit)
-- **Health Checks**: Periodic heartbeat validation
+- **MultiPV Support**: Analyzes top N variations simultaneously
+- **Rate Limiting**: Limits engine updates to 5 per second (prevents UI lag)
+- **Health Checks**: Periodic heartbeat validation (every 30s)
 - **Auto-Restart**: Attempts restart on failure (max 3 attempts)
-- **Queue System**: Handles concurrent analysis requests
+- **Mate Score Conversion**: Converts mate-in-N to comparable centipawn values
 
 **Key Methods**:
 ```typescript
-analyzePosition(fen: string, depth: number): Promise<AnalysisResult>
-getBestMove(fen: string, depth: number): Promise<string>
+analyzePosition(fen: string, options: AnalysisOptions): Promise<PositionAnalysis>
+// Returns: { lines: AnalysisLine[], timeSpent: number, ...backwards compat getters }
+//   where each AnalysisLine contains:
+//   - evaluation: number (centipawns)
+//   - mateIn?: number
+//   - bestMove: string (UCI format)
+//   - pv: string[] (principal variation)
+//   - depth: number
+//   - multiPvIndex: number (1=best, 2=second best, etc.)
+//   - nodes, nps: performance metrics
+
 getEngineHealth(): EngineHealth
 restart(): Promise<void>
 shutdown(): Promise<void>
@@ -216,14 +227,27 @@ shutdown(): Promise<void>
 Initialize
     → Send: uci
     ← Receive: uciok
+    → Send: setoption name Threads value 2
+    → Send: setoption name Hash value 128
+    → Send: setoption name MultiPV value 3
     → Send: isready
     ← Receive: readyok
 
-Analyze Position
+Analyze Position (with MultiPV=3)
+    → Send: ucinewgame
     → Send: position fen <FEN>
-    → Send: go depth <DEPTH>
-    ← Receive: info score cp <SCORE> ...
-    ← Receive: bestmove <MOVE>
+    → Send: go depth 15
+    ← Receive: info depth 1 multipv 1 score cp 25 pv e2e4
+    ← Receive: info depth 1 multipv 2 score cp 20 pv d2d4
+    ← Receive: info depth 1 multipv 3 score cp 15 pv g1f3
+    ← Receive: info depth 2 multipv 1 score cp 30 pv e2e4 e7e5
+    ...
+    ← Receive: bestmove e2e4 ponder e7e5
+
+Rate Limited Updates
+    - Engine sends many info messages as depth increases
+    - Service rate-limits to 5 updates/sec (200ms interval)
+    - Prevents UI lag from rapid updates
 ```
 
 #### 4. Analysis Service (`analysisService.ts`)
@@ -231,30 +255,60 @@ Analyze Position
 **Responsibilities**:
 - Orchestrate game analysis workflow
 - Parse PGN and extract positions
-- Classify moves (blunder/mistake/inaccuracy/good)
-- Store analysis results
-- Calculate statistics
+- Classify moves using MultiPV-based evaluation
+- Store analysis results with accurate centipawn loss
+- Calculate statistics (accuracy, mistakes, etc.)
 
-**Analysis Algorithm**:
+**Analysis Algorithm (MultiPV-Based)**:
 ```typescript
-1. Parse game PGN
-2. Extract each position (FEN)
+1. Parse game PGN with chess.js
+2. Extract move history
 3. For each position:
-   a. Get Stockfish evaluation
-   b. Get best move suggestion
-   c. Calculate move quality
-   d. Classify mistake severity
-   e. Store analysis result
+   a. Analyze with MultiPV=3 to get top 3 engine moves
+   b. Find player's move in engine lines (UCI format match)
+   c. If found in top 3:
+      - Calculate exact centipawn loss from best line
+      - Classify based on which line (1st/2nd/3rd best)
+   d. If NOT in top 3:
+      - Apply player's move and analyze resulting position
+      - Calculate centipawn loss from player's perspective
+   e. Store analysis with accurate evaluation
 4. Generate summary statistics
+
+Performance Improvement:
+- OLD: 2 analyses per move (before + after) = 2N total
+- NEW: 1 analysis per move (MultiPV) + fallback only for outliers ≈ 1.1N total
+- Result: ~45% faster analysis for typical games
 ```
 
-**Move Classification Logic**:
+**Move Classification Logic** (Player Perspective):
 ```typescript
-// Based on centipawn loss
-evaluationDrop > 300  → Blunder
-evaluationDrop > 100  → Mistake
-evaluationDrop > 50   → Inaccuracy
-evaluationDrop ≤ 50   → Good/Excellent
+// Calculate centipawn loss from player's perspective
+// Stockfish evals are ALWAYS from White's perspective
+
+if (isWhiteMove) {
+  // For White: lower eval = worse position
+  centipawnLoss = bestEval - playerEval
+} else {
+  // For Black: higher eval = worse for Black
+  centipawnLoss = playerEval - bestEval
+}
+
+// Clamp to 0 minimum (can't have negative loss)
+centipawnLoss = Math.max(0, centipawnLoss)
+
+// Classify based on centipawn loss
+centipawnLoss >= 300  → Blunder
+centipawnLoss >= 150  → Mistake
+centipawnLoss >= 50   → Inaccuracy
+centipawnLoss <= 10   → Excellent
+Otherwise             → Good
+
+Examples:
+  Move is 1st best (0 cp loss)   → Excellent
+  Move is 2nd best (20 cp loss)  → Good
+  Move is 3rd best (50 cp loss)  → Inaccuracy
+  Move outside top 3 (400 cp)    → Blunder
 ```
 
 #### 5. Live Analysis Service (`liveAnalysisService.ts`)
@@ -904,7 +958,7 @@ Frontend displays results and updates UI
 ```
 User clicks "Analyze Game"
     ↓
-Frontend sends analysis options
+Frontend sends analysis options (depth, skipOpeningMoves, etc.)
     ↓
 POST /api/games/:id/analyze
     ↓
@@ -912,17 +966,33 @@ Backend: AnalysisService.analyzeGame()
     ↓
 For each move:
     1. Extract position (FEN)
-    2. StockfishService.analyzePosition()
-    3. Calculate move quality
-    4. Create Analysis record
+    2. StockfishService.analyzePosition(fen, { depth: 15, multiPV: 3 })
+       ← Returns top 3 engine moves with evaluations
+    3. Find player's move in engine lines (UCI format)
+    4. If found:
+         - Calculate centipawn loss from best move
+         - Classify based on exact loss
+       Else (move not in top 3):
+         - Analyze position after player's move
+         - Calculate centipawn loss
+    5. Create Analysis record with:
+       - positionFen, moveNumber, playerMove
+       - stockfishEvaluation (best move eval)
+       - bestMove, bestLine (from engine)
+       - mistakeSeverity, analysisDepth, timeSpentMs
     ↓
-Return completion status
+Calculate game statistics:
+    - Accuracy percentages (White/Black/Overall)
+    - Mistake counts (blunders/mistakes/inaccuracies)
+    - Total moves analyzed
+    ↓
+Return completion status with summary
     ↓
 Frontend polls or receives notification
     ↓
 GET /api/games/:id/analysis
     ↓
-Frontend displays results
+Frontend displays results (board, move list, statistics)
 ```
 
 ### Live Analysis Flow

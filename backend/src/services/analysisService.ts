@@ -189,35 +189,90 @@ export class AnalysisService {
         try {
           // Get current position FEN BEFORE the move was played
           const currentFen = chess.fen();
+          const isWhiteMove = moveIndex % 2 === 1;
 
+          // Analyze position with MultiPV=3 to get top 3 engine moves
+          // This is MORE ACCURATE and FASTER (only 1 analysis instead of 2!)
           const analysis = await this.analyzePositionWithRetry(
             stockfish,
             currentFen,
             depth,
-            3 // max retries
+            3, // max retries
+            3  // MultiPV - get top 3 moves
           );
 
           console.log(
-            `✅ Stockfish analysis complete: eval=${analysis.evaluation}, best=${analysis.bestMove}`
+            `✅ Stockfish analysis complete: ${analysis.lines.length} lines, best=${analysis.bestMove} (${analysis.evaluation})`
           );
 
-          // Get the evaluation AFTER the player's move for comparison
-          chess.move(move.san);
-          const afterMoveEval = await this.analyzePositionWithRetry(
-            stockfish,
-            chess.fen(),
-            depth,
-            2 // fewer retries for comparison analysis
+          // Get the player's actual move in UCI format for comparison
+          const playerMoveUci = move.from + move.to + (move.promotion || "");
+
+          // Find which line (if any) the player's move matches
+          const playerMoveLine = analysis.lines.find(line =>
+            line.bestMove === playerMoveUci || line.pv[0] === playerMoveUci
           );
 
-          // Classify the move based on evaluation difference
-          // Determine whose move it is (odd moveNumber = White, even = Black)
-          const isWhiteMove = moveIndex % 2 === 1;
-          const mistakeSeverity = this.classifyMove(
-            analysis.evaluation,
-            afterMoveEval.evaluation,
-            isWhiteMove
-          );
+          // Calculate centipawn loss from player's perspective
+          const bestEval = analysis.lines[0].evaluation;
+          const playerEval = playerMoveLine?.evaluation;
+
+          let centipawnLoss = 0;
+          let mistakeSeverity = "good";
+
+          if (playerEval !== undefined) {
+            // Player's move was in top 3 engine moves
+            // Calculate loss from player's perspective
+            if (isWhiteMove) {
+              // For White: lower eval = worse position
+              centipawnLoss = bestEval - playerEval;
+            } else {
+              // For Black: higher eval (more positive) = worse position
+              centipawnLoss = playerEval - bestEval;
+            }
+
+            // Clamp to 0 minimum (can't have negative loss)
+            centipawnLoss = Math.max(0, centipawnLoss);
+
+            mistakeSeverity = this.classifyMoveByLoss(centipawnLoss);
+
+            console.log(
+              `🎯 Move found in engine lines (line ${playerMoveLine.multiPvIndex}): loss=${centipawnLoss}cp, severity=${mistakeSeverity}`
+            );
+          } else {
+            // Player's move was NOT in top 3 - need to analyze it separately
+            console.log(
+              `⚠️ Player move ${move.san} not in top 3, analyzing separately...`
+            );
+
+            // Apply the move and analyze the resulting position
+            chess.move(move.san);
+            const afterMoveAnalysis = await this.analyzePositionWithRetry(
+              stockfish,
+              chess.fen(),
+              depth,
+              2 // fewer retries
+            );
+
+            // Calculate loss from perspective
+            if (isWhiteMove) {
+              centipawnLoss = bestEval - afterMoveAnalysis.evaluation;
+            } else {
+              centipawnLoss = afterMoveAnalysis.evaluation - bestEval;
+            }
+
+            centipawnLoss = Math.max(0, centipawnLoss);
+            mistakeSeverity = this.classifyMoveByLoss(centipawnLoss);
+
+            console.log(
+              `📊 After-move analysis: eval=${afterMoveAnalysis.evaluation}, loss=${centipawnLoss}cp, severity=${mistakeSeverity}`
+            );
+          }
+
+          // If we haven't applied the move yet (because it was in top 3), apply it now
+          if (playerEval !== undefined) {
+            chess.move(move.san);
+          }
 
           // Store analysis in database
           await prisma.analysis.create({
@@ -226,11 +281,9 @@ export class AnalysisService {
               positionFen: currentFen,
               moveNumber: moveIndex,
               playerMove: move.san,
-              stockfishEvaluation: analysis.evaluation,
+              stockfishEvaluation: bestEval,
               bestMove: analysis.bestMove,
-              bestLine: Array.isArray(analysis.bestLine)
-                ? analysis.bestLine.join(" ")
-                : analysis.bestLine,
+              bestLine: analysis.bestLine.join(" "),
               analysisDepth: depth,
               mistakeSeverity,
               timeSpentMs: analysis.timeSpent,
@@ -241,18 +294,16 @@ export class AnalysisService {
           analysisResults.push({
             moveNumber: moveIndex,
             playerMove: move.san,
-            evaluation: analysis.evaluation,
+            evaluation: bestEval,
             bestMove: analysis.bestMove,
             mistakeSeverity,
             analysisDepth: depth,
             positionFen: currentFen,
-            bestLine: Array.isArray(analysis.bestLine)
-              ? analysis.bestLine.join(" ")
-              : analysis.bestLine,
+            bestLine: analysis.bestLine.join(" "),
           });
 
           console.log(
-            `✅ Move ${moveIndex} analyzed: ${move.san} (eval: ${analysis.evaluation}, best: ${analysis.bestMove}, severity: ${mistakeSeverity})`
+            `✅ Move ${moveIndex} analyzed: ${move.san} (best: ${analysis.bestMove}, loss: ${centipawnLoss}cp, severity: ${mistakeSeverity})`
           );
         } catch (error) {
           console.error(`❌ Error analyzing move ${moveIndex}:`, error);
@@ -313,7 +364,8 @@ export class AnalysisService {
     stockfish: any,
     fen: string,
     depth: number,
-    maxRetries: number = 3
+    maxRetries: number = 3,
+    multiPV: number = 1
   ): Promise<any> {
     let lastError: Error | null = null;
 
@@ -322,10 +374,10 @@ export class AnalysisService {
         console.log(
           `🔄 Analysis attempt ${attempt}/${maxRetries} for position: ${
             fen.split(" ")[0]
-          }`
+          } (MultiPV=${multiPV})`
         );
 
-        const result = await stockfish.analyzePosition(fen, { depth });
+        const result = await stockfish.analyzePosition(fen, { depth, multiPV });
 
         if (!result) {
           throw new Error("Analysis returned null result");
@@ -338,6 +390,10 @@ export class AnalysisService {
         // Validate the result has required properties
         if (typeof result.evaluation !== "number") {
           throw new Error("Analysis returned invalid evaluation");
+        }
+
+        if (!result.lines || result.lines.length === 0) {
+          throw new Error("Analysis returned no lines");
         }
 
         return result;
@@ -377,6 +433,15 @@ export class AnalysisService {
       reduce: (callback: (sum: any, item: any) => any, initial: any) =>
         emptyDetails.reduce(callback, initial),
     };
+  }
+
+  private classifyMoveByLoss(centipawnLoss: number): string {
+    // Classify move based on centipawn loss (already calculated from player's perspective)
+    if (centipawnLoss >= 300) return "blunder";
+    if (centipawnLoss >= 150) return "mistake";
+    if (centipawnLoss >= 50) return "inaccuracy";
+    if (centipawnLoss <= 10) return "excellent";
+    return "good";
   }
 
   private classifyMove(beforeEval: number, afterEval: number, isWhiteMove: boolean): string {

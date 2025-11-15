@@ -6,16 +6,30 @@ export interface AnalysisOptions {
   depth?: number;
   timeLimit?: number;
   threads?: number;
+  multiPV?: number; // Number of variations to analyze
+}
+
+export interface AnalysisLine {
+  evaluation: number; // Centipawn evaluation
+  mateIn?: number; // Mate in X moves (if applicable)
+  bestMove: string;
+  pv: string[]; // Principal variation as array of moves
+  depth: number;
+  multiPvIndex: number; // Which line this is (1 = best, 2 = second best, etc.)
+  nodes: number;
+  nps: number; // Nodes per second
 }
 
 export interface PositionAnalysis {
   fen: string;
-  evaluation: number; // Centipawn evaluation
-  bestMove: string;
-  bestLine: string[];
-  depth: number;
+  lines: AnalysisLine[]; // Multiple lines from MultiPV
   timeSpent: number;
-  pv: string; // Principal variation
+  // Backwards compatibility - use best line
+  get evaluation(): number;
+  get bestMove(): string;
+  get bestLine(): string[];
+  get depth(): number;
+  get pv(): string;
 }
 
 export interface MoveClassification {
@@ -62,8 +76,12 @@ export class StockfishService extends EventEmitter {
     reject: (error: Error) => void;
     timeout?: NodeJS.Timeout;
     startTime: number;
-    bestInfo?: EngineInfo;
+    lines: Map<number, Partial<AnalysisLine>>; // Track multiple PV lines by multiPvIndex
   } | null = null;
+
+  // Rate limiting for info updates
+  private lastInfoEmit: number = 0;
+  private minInfoEmitInterval: number = 200; // 5 updates per second
 
   constructor() {
     super();
@@ -359,7 +377,10 @@ export class StockfishService extends EventEmitter {
 
     // Parse UCI info messages
     const parts = message.split(" ");
-    const info: Partial<EngineInfo> = {};
+    const info: Partial<AnalysisLine> & { multiPv?: number } = {
+      nodes: 0,
+      nps: 0,
+    };
 
     for (let i = 1; i < parts.length; i += 2) {
       const key = parts[i];
@@ -371,7 +392,7 @@ export class StockfishService extends EventEmitter {
             info.depth = parseInt(value);
             break;
           case "time":
-            info.time = parseInt(value);
+            // We don't need to track time per line
             break;
           case "nodes":
             info.nodes = parseInt(value);
@@ -381,6 +402,7 @@ export class StockfishService extends EventEmitter {
             break;
           case "multipv":
             info.multiPv = parseInt(value);
+            info.multiPvIndex = parseInt(value);
             break;
           case "score":
             i++; // Skip 'score'
@@ -390,28 +412,62 @@ export class StockfishService extends EventEmitter {
               info.evaluation = parseInt(scoreValue);
             } else if (scoreType === "mate") {
               info.mateIn = parseInt(scoreValue);
+              // Convert mate to extreme centipawn value for comparison
+              // Mate in N = sign * (10000 + 100 * (100 - N))
+              const mateValue = parseInt(scoreValue);
+              info.evaluation = mateValue > 0
+                ? 10000 + 100 * (100 - mateValue)
+                : -(10000 + 100 * (100 + mateValue));
             }
             break;
           case "pv":
-            // Principal variation - rest of the line
-            info.pv = parts.slice(i + 1).join(" ");
+            // Principal variation - rest of the line as array
+            const pvMoves = parts.slice(i + 1);
+            info.pv = pvMoves;
+            if (pvMoves.length > 0) {
+              info.bestMove = pvMoves[0];
+            }
             i = parts.length; // Break out of loop
             break;
         }
       }
     }
 
-    // Update best info if this is better depth
-    if (
-      info.depth &&
-      (!this.currentAnalysis.bestInfo ||
-        info.depth > this.currentAnalysis.bestInfo.depth)
-    ) {
-      this.currentAnalysis.bestInfo = info as EngineInfo;
+    // Only process if we have essential data
+    if (!info.depth || !info.multiPv || !info.pv || info.evaluation === undefined) {
+      return;
     }
 
-    // Emit analysis progress
-    this.emit("analysis-info", info);
+    const multiPvIndex = info.multiPv;
+
+    // Get or create the line for this multiPV index
+    const existingLine = this.currentAnalysis.lines.get(multiPvIndex) || {};
+
+    // Merge new info with existing line (keep updating as depth increases)
+    const updatedLine: Partial<AnalysisLine> = {
+      ...existingLine,
+      ...info,
+      multiPvIndex,
+    };
+
+    this.currentAnalysis.lines.set(multiPvIndex, updatedLine);
+
+    // Rate limiting: Only emit updates every 200ms (5 per second)
+    const now = Date.now();
+    if (now - this.lastInfoEmit >= this.minInfoEmitInterval) {
+      // Emit progress with all current lines
+      const allLines = Array.from(this.currentAnalysis.lines.values())
+        .filter(line => line.depth && line.evaluation !== undefined)
+        .sort((a, b) => (a.multiPvIndex || 0) - (b.multiPvIndex || 0));
+
+      this.emit("analysis-info", {
+        fen: this.currentAnalysis.fen,
+        lines: allLines,
+        depth: info.depth,
+      });
+
+      this.lastInfoEmit = now;
+    }
   }
 
   private processBestMove(message: string): void {
@@ -423,7 +479,6 @@ export class StockfishService extends EventEmitter {
     const ponder = parts.length > 3 ? parts[3] : null;
 
     const timeSpent = Date.now() - this.currentAnalysis.startTime;
-    const bestInfo = this.currentAnalysis.bestInfo;
 
     if (bestMove === "(none)" || !bestMove) {
       this.currentAnalysis.reject(new Error("No legal moves in position"));
@@ -431,15 +486,43 @@ export class StockfishService extends EventEmitter {
       return;
     }
 
-    // Create analysis result
+    // Convert all collected lines to AnalysisLine format
+    const lines: AnalysisLine[] = Array.from(this.currentAnalysis.lines.values())
+      .filter(line =>
+        line.depth !== undefined &&
+        line.evaluation !== undefined &&
+        line.bestMove !== undefined &&
+        line.pv !== undefined
+      )
+      .map(line => ({
+        evaluation: line.evaluation!,
+        mateIn: line.mateIn,
+        bestMove: line.bestMove!,
+        pv: line.pv!,
+        depth: line.depth!,
+        multiPvIndex: line.multiPvIndex!,
+        nodes: line.nodes || 0,
+        nps: line.nps || 0,
+      }))
+      .sort((a, b) => a.multiPvIndex - b.multiPvIndex);
+
+    if (lines.length === 0) {
+      this.currentAnalysis.reject(new Error("No analysis lines collected"));
+      this.currentAnalysis = null;
+      return;
+    }
+
+    // Create analysis result with backwards compatibility getters
     const result: PositionAnalysis = {
       fen: this.currentAnalysis.fen,
-      evaluation: bestInfo?.evaluation || 0,
-      bestMove,
-      bestLine: bestInfo?.pv ? bestInfo.pv.split(" ") : [bestMove],
-      depth: bestInfo?.depth || this.currentAnalysis.options.depth || 15,
+      lines,
       timeSpent,
-      pv: bestInfo?.pv || bestMove,
+      // Backwards compatibility - return first (best) line properties
+      get evaluation() { return this.lines[0]?.evaluation || 0; },
+      get bestMove() { return this.lines[0]?.bestMove || ""; },
+      get bestLine() { return this.lines[0]?.pv || []; },
+      get depth() { return this.lines[0]?.depth || 0; },
+      get pv() { return this.lines[0]?.pv.join(" ") || ""; },
     };
 
     // Clear timeout
@@ -506,6 +589,7 @@ export class StockfishService extends EventEmitter {
 
     const depth = options.depth || 15;
     const timeLimit = options.timeLimit || 10000; // 10 seconds default
+    const multiPV = options.multiPV || 1; // Default to single line for backwards compatibility
 
     return new Promise((resolve, reject) => {
       const startTime = Date.now();
@@ -529,11 +613,20 @@ export class StockfishService extends EventEmitter {
         reject,
         timeout,
         startTime,
+        lines: new Map(), // Initialize empty map for PV lines
       };
 
       try {
         // Send analysis commands
         this.sendCommand("ucinewgame");
+
+        // Configure MultiPV if requested
+        if (multiPV > 1) {
+          this.sendCommand(`setoption name MultiPV value ${multiPV}`);
+        } else {
+          this.sendCommand(`setoption name MultiPV value 1`);
+        }
+
         this.sendCommand(`position fen ${fen}`);
         this.sendCommand(`go depth ${depth}`);
       } catch (error) {

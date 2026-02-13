@@ -18,6 +18,18 @@ export interface AnalysisProgress {
   message: string;
 }
 
+export interface AnalysisDetail {
+  moveNumber: number;
+  playerMove: string;
+  evaluation: number;
+  bestMove: string;
+  mistakeSeverity?: string;
+  centipawnLoss?: number;
+  analysisDepth?: number;
+  positionFen?: string;
+  bestLine?: string;
+}
+
 export interface GameAnalysis {
   gameId: string;
   totalMoves: number;
@@ -32,21 +44,7 @@ export interface GameAnalysis {
     mistakes: number;
     inaccuracies: number;
   };
-  analysisDetails: Array<{
-    moveNumber: number;
-    playerMove: string;
-    evaluation: number;
-    bestMove: string;
-    mistakeSeverity?: string;
-    analysisDepth?: number;
-    positionFen?: string;
-    bestLine?: string;
-  }>;
-  // Add array methods that routes expect
-  length: number;
-  filter: (predicate: (item: any) => boolean) => any[];
-  find: (predicate: (item: any) => boolean) => any;
-  reduce: (callback: (sum: any, item: any) => any, initial: any) => any;
+  analysisDetails: AnalysisDetail[];
 }
 
 export class AnalysisService {
@@ -99,6 +97,9 @@ export class AnalysisService {
 
       console.log(`✅ Stockfish engine ready - proceeding with analysis`);
 
+      // Clear engine state once for the entire game analysis
+      stockfish.newGame();
+
       // Initialize chess engine and load the game
       const chess = new Chess();
 
@@ -137,16 +138,7 @@ export class AnalysisService {
 
       // Reset the chess position and replay moves step by step
       chess.reset();
-      const analysisResults: Array<{
-        moveNumber: number;
-        playerMove: string;
-        evaluation: number;
-        bestMove: string;
-        mistakeSeverity?: string;
-        analysisDepth?: number;
-        positionFen?: string;
-        bestLine?: string;
-      }> = [];
+      const analysisResults: AnalysisDetail[] = [];
 
       // Replay the game move by move and analyze each position
       for (let i = 0; i < moveHistory.length; i++) {
@@ -297,6 +289,7 @@ export class AnalysisService {
             evaluation: bestEval,
             bestMove: analysis.bestMove,
             mistakeSeverity,
+            centipawnLoss,
             analysisDepth: depth,
             positionFen: currentFen,
             bestLine: analysis.bestLine.join(" "),
@@ -417,26 +410,17 @@ export class AnalysisService {
   }
 
   private createEmptyAnalysis(gameId: string): GameAnalysis {
-    const emptyDetails: any[] = [];
     return {
       gameId,
       totalMoves: 0,
       analyzedMoves: 0,
       accuracy: { white: 0, black: 0, overall: 0 },
       mistakes: { blunders: 0, mistakes: 0, inaccuracies: 0 },
-      analysisDetails: emptyDetails,
-      // Add array-like properties
-      length: 0,
-      filter: (predicate: (item: any) => boolean) =>
-        emptyDetails.filter(predicate),
-      find: (predicate: (item: any) => boolean) => emptyDetails.find(predicate),
-      reduce: (callback: (sum: any, item: any) => any, initial: any) =>
-        emptyDetails.reduce(callback, initial),
+      analysisDetails: [],
     };
   }
 
   private classifyMoveByLoss(centipawnLoss: number): string {
-    // Classify move based on centipawn loss (already calculated from player's perspective)
     if (centipawnLoss >= 300) return "blunder";
     if (centipawnLoss >= 150) return "mistake";
     if (centipawnLoss >= 50) return "inaccuracy";
@@ -444,50 +428,21 @@ export class AnalysisService {
     return "good";
   }
 
-  private classifyMove(beforeEval: number, afterEval: number, isWhiteMove: boolean): string {
-    // Convert evaluations to centipawns for comparison
-    const beforeCp = beforeEval * 100;
-    const afterCp = afterEval * 100;
-
-    // Calculate centipawn loss from the player's perspective
-    // Stockfish evaluations are ALWAYS from White's perspective:
-    // - Positive eval = White is better
-    // - Negative eval = Black is better
-    let centipawnLoss;
-
-    if (isWhiteMove) {
-      // For White: if eval decreases, White's position worsened (bad move)
-      // beforeCp = +100 (White +1), afterCp = +50 (White +0.5) => loss = 50 cp
-      centipawnLoss = beforeCp - afterCp;
-    } else {
-      // For Black: if eval increases, White improved = Black worsened (bad move)
-      // beforeCp = +100 (White +1), afterCp = +150 (White +1.5) => loss = 50 cp for Black
-      centipawnLoss = afterCp - beforeCp;
-    }
-
-    // Only consider actual losses (positive values)
-    // If centipawnLoss is negative, the player improved their position
-    centipawnLoss = Math.max(0, centipawnLoss);
-
-    if (centipawnLoss >= 300) return "blunder";
-    if (centipawnLoss >= 150) return "mistake";
-    if (centipawnLoss >= 50) return "inaccuracy";
-    if (centipawnLoss <= 10) return "excellent";
-    return "good";
+  /**
+   * Convert Average Centipawn Loss (ACPL) to an accuracy percentage (0-100).
+   * Uses a formula modeled after Lichess's accuracy calculation.
+   */
+  private acplToAccuracy(acpl: number): number {
+    if (acpl < 0) return 100;
+    // Formula: 103.1668 * exp(-0.04354 * ACPL) - 3.1669
+    // Produces ~100% at ACPL=0, ~50% at ACPL=16, ~0% at ACPL≥80
+    const accuracy = 103.1668 * Math.exp(-0.04354 * acpl) - 3.1669;
+    return Math.max(0, Math.min(100, accuracy));
   }
 
   private calculateGameStatistics(
     gameId: string,
-    analysisResults: Array<{
-      moveNumber: number;
-      playerMove: string;
-      evaluation: number;
-      bestMove: string;
-      mistakeSeverity?: string;
-      analysisDepth?: number;
-      positionFen?: string;
-      bestLine?: string;
-    }>
+    analysisResults: AnalysisDetail[]
   ): GameAnalysis {
     const totalMoves = analysisResults.length;
 
@@ -502,30 +457,23 @@ export class AnalysisService {
       ).length,
     };
 
-    // Calculate accuracy (percentage of good moves)
-    const goodMoves = analysisResults.filter(
-      (r) => r.mistakeSeverity === "good" || r.mistakeSeverity === "excellent"
-    ).length;
-    const overallAccuracy = totalMoves > 0 ? (goodMoves / totalMoves) * 100 : 0;
-
-    // Separate white and black moves for individual accuracy
+    // Calculate accuracy based on Average Centipawn Loss (ACPL)
     const whiteMoves = analysisResults.filter((r) => r.moveNumber % 2 === 1);
     const blackMoves = analysisResults.filter((r) => r.moveNumber % 2 === 0);
 
-    const whiteGoodMoves = whiteMoves.filter(
-      (r) => r.mistakeSeverity === "good" || r.mistakeSeverity === "excellent"
-    ).length;
-    const blackGoodMoves = blackMoves.filter(
-      (r) => r.mistakeSeverity === "good" || r.mistakeSeverity === "excellent"
-    ).length;
+    const whiteACPL = whiteMoves.length > 0
+      ? whiteMoves.reduce((sum, r) => sum + (r.centipawnLoss || 0), 0) / whiteMoves.length
+      : 0;
+    const blackACPL = blackMoves.length > 0
+      ? blackMoves.reduce((sum, r) => sum + (r.centipawnLoss || 0), 0) / blackMoves.length
+      : 0;
+    const overallACPL = totalMoves > 0
+      ? analysisResults.reduce((sum, r) => sum + (r.centipawnLoss || 0), 0) / totalMoves
+      : 0;
 
-    const whiteAccuracy =
-      whiteMoves.length > 0 ? (whiteGoodMoves / whiteMoves.length) * 100 : 0;
-    const blackAccuracy =
-      blackMoves.length > 0 ? (blackGoodMoves / blackMoves.length) * 100 : 0;
-
-    // Create array-like methods for the analysisDetails
-    const details = analysisResults;
+    const whiteAccuracy = this.acplToAccuracy(whiteACPL);
+    const blackAccuracy = this.acplToAccuracy(blackACPL);
+    const overallAccuracy = this.acplToAccuracy(overallACPL);
 
     return {
       gameId,
@@ -537,14 +485,24 @@ export class AnalysisService {
         overall: Math.round(overallAccuracy * 100) / 100,
       },
       mistakes,
-      analysisDetails: details,
-      // Add array-like properties
-      length: details.length,
-      filter: (predicate: (item: any) => boolean) => details.filter(predicate),
-      find: (predicate: (item: any) => boolean) => details.find(predicate),
-      reduce: (callback: (sum: any, item: any) => any, initial: any) =>
-        details.reduce(callback, initial),
+      analysisDetails: analysisResults,
     };
+  }
+
+  /**
+   * Estimate centipawn loss from a severity classification.
+   * Used for backwards compatibility with analysis data that doesn't
+   * have centipawnLoss stored explicitly.
+   */
+  private estimateCentipawnLossFromSeverity(severity?: string): number {
+    switch (severity) {
+      case "blunder": return 350;
+      case "mistake": return 200;
+      case "inaccuracy": return 75;
+      case "good": return 25;
+      case "excellent": return 5;
+      default: return 25;
+    }
   }
 
   async getGameAnalysis(gameId: string): Promise<GameAnalysis | null> {
@@ -558,12 +516,13 @@ export class AnalysisService {
         return null;
       }
 
-      const analysisResults = analysisData.map((a) => ({
+      const analysisResults: AnalysisDetail[] = analysisData.map((a) => ({
         moveNumber: a.moveNumber,
         playerMove: a.playerMove,
         evaluation: a.stockfishEvaluation,
         bestMove: a.bestMove,
         mistakeSeverity: a.mistakeSeverity || undefined,
+        centipawnLoss: this.estimateCentipawnLossFromSeverity(a.mistakeSeverity || undefined),
         analysisDepth: a.analysisDepth,
         positionFen: a.positionFen,
         bestLine: a.bestLine || undefined,

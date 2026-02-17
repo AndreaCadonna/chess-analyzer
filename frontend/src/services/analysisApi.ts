@@ -77,8 +77,6 @@ export const startGameAnalysis = async (
   gameId: string,
   options: {
     depth?: number;
-    skipOpeningMoves?: number;
-    maxPositions?: number;
   } = {}
 ): Promise<{ analysis: AnalysisResult; progress: AnalysisProgress[] }> => {
   const response = await api.post(`/analysis/games/${gameId}/analyze`, options);
@@ -152,6 +150,115 @@ export const getUserAnalysisStats = async (userId: string): Promise<AnalysisStat
     throw new Error(response.data.message || "Failed to fetch analysis stats");
   }
   return response.data.data;
+};
+
+// ===== STREAMING ANALYSIS =====
+
+export interface StreamProgress {
+  current: number;
+  total: number;
+  percentage: number;
+  status: string;
+  message: string;
+}
+
+export interface StreamCallbacks {
+  onProgress: (progress: StreamProgress) => void;
+  onComplete: (analysis: any) => void;
+  onError: (message: string) => void;
+}
+
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:3001/api";
+
+export const startGameAnalysisStream = (
+  gameId: string,
+  options: {
+    depth?: number;
+  },
+  callbacks: StreamCallbacks
+): AbortController => {
+  const controller = new AbortController();
+
+  const run = async () => {
+    let response: Response;
+    try {
+      response = await fetch(
+        `${API_BASE_URL}/analysis/games/${gameId}/analyze/stream`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(options),
+          signal: controller.signal,
+        }
+      );
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        callbacks.onError(
+          err instanceof Error ? err.message : "Network error"
+        );
+      }
+      return;
+    }
+
+    // Non-SSE response means a validation error (JSON)
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/event-stream")) {
+      try {
+        const json = await response.json();
+        callbacks.onError(json.message || `Server error (${response.status})`);
+      } catch {
+        callbacks.onError(`Server error (${response.status})`);
+      }
+      return;
+    }
+
+    // Read the SSE stream
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep incomplete last line in buffer
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            switch (event.type) {
+              case "progress":
+                callbacks.onProgress(event.data);
+                break;
+              case "complete":
+                callbacks.onComplete(event.data.analysis);
+                break;
+              case "error":
+                callbacks.onError(event.data.message);
+                break;
+            }
+          } catch {
+            // ignore malformed lines
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        callbacks.onError(
+          err instanceof Error ? err.message : "Stream interrupted"
+        );
+      }
+    }
+  };
+
+  run();
+  return controller;
 };
 
 // ===== UTILITY FUNCTIONS =====

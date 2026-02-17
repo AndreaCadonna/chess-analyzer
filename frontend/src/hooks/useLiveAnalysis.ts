@@ -73,6 +73,7 @@ export const useLiveAnalysis = (): [LiveAnalysisState, LiveAnalysisActions] => {
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
+  const sessionIdRef = useRef<string | null>(null);
   const maxReconnectAttempts = 5;
 
   // Cleanup function
@@ -202,8 +203,8 @@ export const useLiveAnalysis = (): [LiveAnalysisState, LiveAnalysisActions] => {
           );
 
           reconnectTimeoutRef.current = setTimeout(() => {
-            if (state.sessionId) {
-              connectToStream(state.sessionId);
+            if (sessionIdRef.current) {
+              connectToStream(sessionIdRef.current);
             }
           }, delay);
         } else {
@@ -215,7 +216,7 @@ export const useLiveAnalysis = (): [LiveAnalysisState, LiveAnalysisActions] => {
         }
       };
     },
-    [state.sessionId]
+    []
   );
 
   // Create analysis session
@@ -233,6 +234,7 @@ export const useLiveAnalysis = (): [LiveAnalysisState, LiveAnalysisActions] => {
       const { sessionId } = response.data.data;
       console.log(`✅ Session created: ${sessionId}`);
 
+      sessionIdRef.current = sessionId;
       setState((prev) => ({
         ...prev,
         sessionId,
@@ -261,6 +263,7 @@ export const useLiveAnalysis = (): [LiveAnalysisState, LiveAnalysisActions] => {
       console.error("❌ Error closing session:", error);
     } finally {
       cleanup();
+      sessionIdRef.current = null;
       setState((prev) => ({
         ...prev,
         isConnected: false,

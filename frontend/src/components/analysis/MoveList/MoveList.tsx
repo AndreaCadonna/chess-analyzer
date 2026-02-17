@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 // src/components/chess/MoveList/MoveList.tsx
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
   formatEvaluation,
   getMistakeColor,
@@ -29,152 +29,54 @@ interface MoveAnalysisDetail {
 }
 
 interface MoveListProps {
-  /**
-   * Array of moves from the game
-   */
   moves: Move[];
-
-  /**
-   * Analysis details for moves
-   */
   analysisDetails?: MoveAnalysisDetail[];
-
-  /**
-   * Current move index
-   */
   currentMoveIndex: number;
-
-  /**
-   * Total number of moves
-   */
   totalMoves: number;
-
-  /**
-   * Handler for move selection
-   */
   onMoveClick: (moveIndex: number) => void;
-
-  /**
-   * Show move numbers
-   */
   showMoveNumbers?: boolean;
-
-  /**
-   * Compact mode (smaller layout)
-   */
   compact?: boolean;
-
-  /**
-   * Additional CSS classes
-   */
   className?: string;
 }
 
-interface MoveItemProps {
-  moveNumber: number;
+interface MovePair {
+  fullMoveNumber: number;
+  white: { move: Move; index: number; analysis?: MoveAnalysisDetail } | null;
+  black: { move: Move; index: number; analysis?: MoveAnalysisDetail } | null;
+}
+
+interface MoveCellProps {
   move: Move;
+  moveIndex: number;
   analysis?: MoveAnalysisDetail;
   isCurrent: boolean;
-  isStartPosition?: boolean;
-  compact?: boolean;
   onClick: () => void;
 }
 
-const MoveItem: React.FC<MoveItemProps> = ({
-  moveNumber,
-  move,
-  analysis,
-  isCurrent,
-  isStartPosition = false,
-  compact = false,
-  onClick,
-}) => {
-  const getMoveTypeClass = (): string => {
-    if (isStartPosition) return "move-item--start";
-    if (!analysis?.mistakeSeverity) return "";
-
-    switch (analysis.mistakeSeverity) {
-      case "blunder":
-        return "move-item--blunder";
-      case "mistake":
-        return "move-item--mistake";
-      case "inaccuracy":
-        return "move-item--inaccuracy";
-      case "excellent":
-        return "move-item--excellent";
-      case "good":
-        return "move-item--good";
-      default:
-        return "";
-    }
-  };
-
-  const renderMoveNumber = () => {
-    if (isStartPosition) return "Start";
-
-    // Chess notation: 1. for white moves, 1... for black moves
-    const isWhiteMove = moveNumber % 2 === 1;
-    const fullMoveNumber = Math.ceil(moveNumber / 2);
-
-    if (isWhiteMove) {
-      return `${fullMoveNumber}.`;
-    } else {
-      return `${fullMoveNumber}...`;
-    }
-  };
-
-  const renderMoveNotation = () => {
-    if (isStartPosition) return "Starting Position";
-    return move.san;
-  };
+const MoveCell: React.FC<MoveCellProps> = ({ move, analysis, isCurrent, onClick }) => {
+  const severityClass = analysis?.mistakeSeverity ? `move-cell--${analysis.mistakeSeverity}` : "";
 
   return (
-    <div
-      className={`move-item ${getMoveTypeClass()} ${
-        isCurrent ? "move-item--current" : ""
-      } ${compact ? "move-item--compact" : ""}`}
+    <button
+      className={`move-cell ${severityClass} ${isCurrent ? "move-cell--current" : ""}`}
       onClick={onClick}
+      type="button"
     >
-      <div className="move-item__content">
-        <span className="move-item__number">{renderMoveNumber()}</span>
-
-        <span className="move-item__notation">{renderMoveNotation()}</span>
-
-        {analysis && !isStartPosition && (
-          <div className="move-item__analysis">
-            <span className="move-item__evaluation">
-              {formatEvaluation(analysis.evaluation)}
-            </span>
-
-            {analysis.mistakeSeverity && (
-              <span
-                className="move-item__mistake-indicator"
-                style={{
-                  color: getMistakeColor(analysis.mistakeSeverity),
-                }}
-                title={`${analysis.mistakeSeverity}: ${analysis.bestMove} was better`}
-              >
-                {getMistakeIcon(analysis.mistakeSeverity)}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {!compact && analysis && !isStartPosition && (
-        <div className="move-item__details">
-          <span className="move-item__best-move">
-            Best: {analysis.bestMove}
-          </span>
-
-          {analysis.analysisDepth && (
-            <span className="move-item__depth">
-              Depth: {analysis.analysisDepth}
+      <span className="move-cell__notation">{move.san}</span>
+      {analysis && (
+        <span className="move-cell__eval">
+          {formatEvaluation(analysis.evaluation)}
+          {analysis.mistakeSeverity && (
+            <span
+              className="move-cell__icon"
+              style={{ color: getMistakeColor(analysis.mistakeSeverity) }}
+            >
+              {getMistakeIcon(analysis.mistakeSeverity)}
             </span>
           )}
-        </div>
+        </span>
       )}
-    </div>
+    </button>
   );
 };
 
@@ -184,125 +86,122 @@ export const MoveList: React.FC<MoveListProps> = ({
   currentMoveIndex,
   totalMoves,
   onMoveClick,
-  showMoveNumbers = true,
+  showMoveNumbers: _showMoveNumbers = true,
   compact = false,
   className = "",
 }) => {
-  // Create a map for quick analysis lookup
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const analysisMap = new Map(
     analysisDetails.map((detail) => [detail.moveNumber, detail])
   );
 
-  const handleMoveClick = (moveIndex: number) => {
-    onMoveClick(moveIndex);
+  // Get display analysis for a move: keep severity/bestMove from the move itself,
+  // but show the eval of the resulting position (from the next move's analysis).
+  const getDisplayAnalysis = (moveIndex: number): MoveAnalysisDetail | undefined => {
+    const moveAnalysis = analysisMap.get(moveIndex);
+    if (!moveAnalysis) return undefined;
+    const nextAnalysis = analysisMap.get(moveIndex + 1);
+    return {
+      ...moveAnalysis,
+      evaluation: nextAnalysis?.evaluation ?? moveAnalysis.evaluation,
+    };
   };
 
+  // Group moves into pairs (white + black)
+  const movePairs: MovePair[] = [];
+  for (let i = 0; i < moves.length; i += 2) {
+    const fullMoveNumber = Math.floor(i / 2) + 1;
+    const whiteIndex = i + 1;
+    const blackIndex = i + 2;
+
+    movePairs.push({
+      fullMoveNumber,
+      white: {
+        move: moves[i],
+        index: whiteIndex,
+        analysis: getDisplayAnalysis(whiteIndex),
+      },
+      black: i + 1 < moves.length
+        ? { move: moves[i + 1], index: blackIndex, analysis: getDisplayAnalysis(blackIndex) }
+        : null,
+    });
+  }
+
+  // Auto-scroll to current move
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const currentEl = containerRef.current.querySelector(".move-cell--current");
+    if (currentEl) {
+      currentEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [currentMoveIndex]);
+
   return (
-    <div
-      className={`move-list ${
-        compact ? "move-list--compact" : ""
-      } ${className}`}
-    >
+    <div className={`move-list ${compact ? "move-list--compact" : ""} ${className}`}>
       <div className="move-list__header">
-        <h3 className="move-list__title">📝 Move List</h3>
-
+        <h3 className="move-list__title">Moves</h3>
         <div className="move-list__stats">
-          <span className="stats-item">Moves: {totalMoves}</span>
-
+          <span className="stats-item">{totalMoves} moves</span>
           {analysisDetails.length > 0 && (
-            <span className="stats-item">
-              Analyzed: {analysisDetails.length}
-            </span>
+            <span className="stats-item">{analysisDetails.length} analyzed</span>
           )}
         </div>
       </div>
 
-      <div className="move-list__container">
-        {/* Starting Position */}
-        <MoveItem
-          moveNumber={0}
-          move={{} as Move}
-          isCurrent={currentMoveIndex === 0}
-          isStartPosition
-          compact={compact}
-          onClick={() => handleMoveClick(0)}
-        />
+      <div className="move-list__container" ref={containerRef}>
+        {/* Starting position row */}
+        <button
+          className={`move-list__start ${currentMoveIndex === 0 ? "move-list__start--current" : ""}`}
+          onClick={() => onMoveClick(0)}
+          type="button"
+        >
+          Starting Position
+        </button>
 
-        {/* Game Moves */}
-        {moves.map((move, index) => {
-          const moveNumber = index + 1;
-          const analysis = analysisMap.get(moveNumber);
-          const isCurrent = currentMoveIndex === moveNumber;
+        {/* Paired move rows */}
+        <div className="move-list__grid">
+          {movePairs.map((pair) => (
+            <div key={pair.fullMoveNumber} className="move-row">
+              <span className="move-row__number">{pair.fullMoveNumber}.</span>
 
-          return (
-            <MoveItem
-              key={moveNumber}
-              moveNumber={moveNumber}
-              move={move}
-              analysis={analysis}
-              isCurrent={isCurrent}
-              compact={compact}
-              onClick={() => handleMoveClick(moveNumber)}
-            />
-          );
-        })}
+              {pair.white && (
+                <MoveCell
+                  move={pair.white.move}
+                  moveIndex={pair.white.index}
+                  analysis={pair.white.analysis}
+                  isCurrent={currentMoveIndex === pair.white.index}
+                  onClick={() => onMoveClick(pair.white!.index)}
+                />
+              )}
+
+              {pair.black ? (
+                <MoveCell
+                  move={pair.black.move}
+                  moveIndex={pair.black.index}
+                  analysis={pair.black.analysis}
+                  isCurrent={currentMoveIndex === pair.black.index}
+                  onClick={() => onMoveClick(pair.black!.index)}
+                />
+              ) : (
+                <span className="move-cell move-cell--empty" />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Legend */}
       {!compact && analysisDetails.length > 0 && (
         <div className="move-list__legend">
-          <h4 className="legend-title">Analysis Legend:</h4>
-          <div className="legend-items">
-            <div className="legend-item">
-              <span
-                className="legend-icon"
-                style={{ color: getMistakeColor("excellent") }}
-              >
-                {getMistakeIcon("excellent")}
+          {(["blunder", "mistake", "inaccuracy", "good", "excellent"] as const).map((severity) => (
+            <span key={severity} className="legend-item">
+              <span className="legend-icon" style={{ color: getMistakeColor(severity) }}>
+                {getMistakeIcon(severity)}
               </span>
-              <span className="legend-text">Excellent</span>
-            </div>
-
-            <div className="legend-item">
-              <span
-                className="legend-icon"
-                style={{ color: getMistakeColor("good") }}
-              >
-                {getMistakeIcon("good")}
-              </span>
-              <span className="legend-text">Good</span>
-            </div>
-
-            <div className="legend-item">
-              <span
-                className="legend-icon"
-                style={{ color: getMistakeColor("inaccuracy") }}
-              >
-                {getMistakeIcon("inaccuracy")}
-              </span>
-              <span className="legend-text">Inaccuracy</span>
-            </div>
-
-            <div className="legend-item">
-              <span
-                className="legend-icon"
-                style={{ color: getMistakeColor("mistake") }}
-              >
-                {getMistakeIcon("mistake")}
-              </span>
-              <span className="legend-text">Mistake</span>
-            </div>
-
-            <div className="legend-item">
-              <span
-                className="legend-icon"
-                style={{ color: getMistakeColor("blunder") }}
-              >
-                {getMistakeIcon("blunder")}
-              </span>
-              <span className="legend-text">Blunder</span>
-            </div>
-          </div>
+              <span className="legend-text">{severity}</span>
+            </span>
+          ))}
         </div>
       )}
     </div>

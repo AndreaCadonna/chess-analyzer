@@ -56,7 +56,7 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
 
   // Variation tracking
   const [variationMoves, setVariationMoves] = useState<VariationMove[]>([]);
-  const [branchPoint, setBranchPoint] = useState<{
+  const [_branchPoint, setBranchPoint] = useState<{
     moveNumber: number;
     description: string;
   } | null>(null);

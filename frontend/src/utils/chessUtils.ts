@@ -208,10 +208,10 @@ export class ChessUtils {
    * Get move history from starting FEN to current FEN
    */
   static getMoveHistory(
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    startingFen: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    currentFen: string
+    _startingFen: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _currentFen: string
   ): Move[] | null {
     // This is a complex operation that would require move history tracking
     // For now, return null as it's not easily computable from just FENs
@@ -297,14 +297,9 @@ export class ChessUtils {
   /**
    * Format move for display
    */
-  static formatMove(move: Move, includeCheck: boolean = true): string {
-    const formatted = move.san;
-
-    if (includeCheck && move.san.includes("+")) {
-      // Already includes check notation
-    }
-
-    return formatted;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  static formatMove(move: Move, _includeCheck: boolean = true): string {
+    return move.san;
   }
 
   /**

@@ -32,13 +32,6 @@ export interface PositionAnalysis {
   get pv(): string;
 }
 
-export interface MoveClassification {
-  move: string;
-  evaluation: number;
-  classification: "excellent" | "good" | "inaccuracy" | "mistake" | "blunder";
-  centipawnLoss: number;
-}
-
 export interface EngineInfo {
   depth: number;
   evaluation?: number;
@@ -632,45 +625,6 @@ export class StockfishService extends EventEmitter {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
-  }
-
-  classifyMove(previousEval: number, currentEval: number, isWhiteMove: boolean): MoveClassification {
-    // Calculate centipawn loss from the moving player's perspective.
-    // Stockfish evaluations are always from White's perspective:
-    //   positive = White is better, negative = Black is better
-    let centipawnLoss: number;
-
-    if (isWhiteMove) {
-      // For White: if eval decreases, White's position worsened
-      centipawnLoss = previousEval - currentEval;
-    } else {
-      // For Black: if eval increases (more positive), Black's position worsened
-      centipawnLoss = currentEval - previousEval;
-    }
-
-    // Only consider actual losses; negative loss means the player improved
-    centipawnLoss = Math.max(0, centipawnLoss);
-
-    let classification: MoveClassification["classification"];
-
-    if (centipawnLoss >= 300) {
-      classification = "blunder";
-    } else if (centipawnLoss >= 150) {
-      classification = "mistake";
-    } else if (centipawnLoss >= 50) {
-      classification = "inaccuracy";
-    } else if (centipawnLoss <= 10) {
-      classification = "excellent";
-    } else {
-      classification = "good";
-    }
-
-    return {
-      move: "", // Will be set by caller
-      evaluation: currentEval,
-      classification,
-      centipawnLoss,
-    };
   }
 
   /**

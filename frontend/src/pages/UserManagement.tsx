@@ -1,5 +1,5 @@
 // frontend/src/pages/UserManagement.tsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   getAllUsers,
@@ -120,15 +120,18 @@ const UserManagement: React.FC = () => {
     }
   };
 
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleUsernameChange = (username: string) => {
     setCreateForm({ ...createForm, chessComUsername: username });
 
     // Debounce validation
-    const timeoutId = setTimeout(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
       validateUsername(username);
     }, 1000);
-
-    return () => clearTimeout(timeoutId);
   };
 
   if (loading) {

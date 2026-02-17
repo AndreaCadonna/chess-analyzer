@@ -3,6 +3,8 @@ import React from "react";
 import Button from "../../ui/Button";
 import Modal from "../../ui/Modal";
 import Alert from "../../ui/Alert";
+import ProgressBar from "../../ui/ProgressBar/ProgressBar";
+import type { StreamProgress } from "../../../services/analysisApi";
 import "./AnalysisActions.css";
 
 interface AnalysisActionsProps {
@@ -42,6 +44,11 @@ interface AnalysisActionsProps {
   variationExplorerAvailable?: boolean;
 
   /**
+   * Real-time analysis progress from streaming
+   */
+  analysisProgress?: StreamProgress | null;
+
+  /**
    * Additional CSS classes
    */
   className?: string;
@@ -54,6 +61,7 @@ export const AnalysisActions: React.FC<AnalysisActionsProps> = ({
   onDeleteAnalysis,
   onOpenVariationExplorer,
   onExportAnalysis,
+  analysisProgress,
   variationExplorerAvailable = false,
   className = "",
 }) => {
@@ -98,13 +106,33 @@ export const AnalysisActions: React.FC<AnalysisActionsProps> = ({
             </span>
           )}
 
-          {isAnalyzing && (
+          {isAnalyzing && !analysisProgress && (
+            <span className="status-badge status-badge--analyzing">
+              🔄 Starting...
+            </span>
+          )}
+          {isAnalyzing && analysisProgress && (
             <span className="status-badge status-badge--analyzing">
               🔄 Analyzing...
             </span>
           )}
         </div>
       </div>
+
+      {isAnalyzing && analysisProgress && (
+        <div className="analysis-progress">
+          <ProgressBar
+            value={analysisProgress.current}
+            max={analysisProgress.total}
+            variant="bar"
+            animated
+            striped
+            showPercentage
+            showProgress
+            label={analysisProgress.message}
+          />
+        </div>
+      )}
 
       <div className="analysis-actions__grid">
         {/* Primary Actions */}

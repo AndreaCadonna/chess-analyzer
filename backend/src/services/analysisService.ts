@@ -1,6 +1,6 @@
 import { Chess } from "chess.js";
 import { prisma } from "../config/database";
-import { getStockfishService } from "./stockfishService";
+import { AnalysisLine, getStockfishService } from "./stockfishService";
 
 export interface AnalysisOptions {
   depth?: number;
@@ -25,6 +25,7 @@ export interface AnalysisDetail {
   bestMove: string;
   mistakeSeverity?: string;
   centipawnLoss?: number;
+  winProbabilityLoss?: number;
   analysisDepth?: number;
   positionFen?: string;
   bestLine?: string;
@@ -201,7 +202,7 @@ export class AnalysisService {
           const playerMoveUci = move.from + move.to + (move.promotion || "");
 
           // Find which line (if any) the player's move matches
-          const playerMoveLine = analysis.lines.find(line =>
+          const playerMoveLine = analysis.lines.find((line: AnalysisLine) =>
             line.bestMove === playerMoveUci || line.pv[0] === playerMoveUci
           );
 
@@ -212,24 +213,26 @@ export class AnalysisService {
           let centipawnLoss = 0;
           let mistakeSeverity = "good";
 
+          let winProbabilityLoss = 0;
+
           if (playerEval !== undefined) {
             // Player's move was in top 3 engine moves
             // Calculate loss from player's perspective
-            if (isWhiteMove) {
-              // For White: lower eval = worse position
-              centipawnLoss = bestEval - playerEval;
-            } else {
-              // For Black: higher eval (more positive) = worse position
-              centipawnLoss = playerEval - bestEval;
-            }
+            // Both evals are from the same MultiPV analysis (same perspective).
+            // bestEval >= playerEval always in MultiPV ordering.
+            centipawnLoss = bestEval - playerEval;
 
             // Clamp to 0 minimum (can't have negative loss)
             centipawnLoss = Math.max(0, centipawnLoss);
 
+            // Compute win probability loss (WCL) for accuracy formula
+            winProbabilityLoss = AnalysisService.cpToWinProbability(bestEval) - AnalysisService.cpToWinProbability(playerEval);
+            winProbabilityLoss = Math.max(0, winProbabilityLoss);
+
             mistakeSeverity = this.classifyMoveByLoss(centipawnLoss);
 
             console.log(
-              `🎯 Move found in engine lines (line ${playerMoveLine.multiPvIndex}): loss=${centipawnLoss}cp, severity=${mistakeSeverity}`
+              `🎯 Move found in engine lines (line ${playerMoveLine.multiPvIndex}): loss=${centipawnLoss}cp, wcl=${winProbabilityLoss.toFixed(2)}, severity=${mistakeSeverity}`
             );
           } else {
             // Player's move was NOT in top 3 - need to analyze it separately
@@ -246,18 +249,22 @@ export class AnalysisService {
               2 // fewer retries
             );
 
-            // Calculate loss from perspective
-            if (isWhiteMove) {
-              centipawnLoss = bestEval - afterMoveAnalysis.evaluation;
-            } else {
-              centipawnLoss = afterMoveAnalysis.evaluation - bestEval;
-            }
+            // bestEval = from moving player's perspective (before move)
+            // afterMoveAnalysis.evaluation = from opponent's perspective (after move)
+            // Adding gives the eval loss from the mover's viewpoint.
+            centipawnLoss = bestEval + afterMoveAnalysis.evaluation;
 
             centipawnLoss = Math.max(0, centipawnLoss);
+
+            // playerEval from mover's perspective = -(opponent's eval after move)
+            const playerEvalFromMove = -afterMoveAnalysis.evaluation;
+            winProbabilityLoss = AnalysisService.cpToWinProbability(bestEval) - AnalysisService.cpToWinProbability(playerEvalFromMove);
+            winProbabilityLoss = Math.max(0, winProbabilityLoss);
+
             mistakeSeverity = this.classifyMoveByLoss(centipawnLoss);
 
             console.log(
-              `📊 After-move analysis: eval=${afterMoveAnalysis.evaluation}, loss=${centipawnLoss}cp, severity=${mistakeSeverity}`
+              `📊 After-move analysis: eval=${afterMoveAnalysis.evaluation}, loss=${centipawnLoss}cp, wcl=${winProbabilityLoss.toFixed(2)}, severity=${mistakeSeverity}`
             );
           }
 
@@ -273,11 +280,13 @@ export class AnalysisService {
               positionFen: currentFen,
               moveNumber: moveIndex,
               playerMove: move.san,
-              stockfishEvaluation: bestEval,
+              stockfishEvaluation: isWhiteMove ? bestEval : -bestEval,
               bestMove: analysis.bestMove,
               bestLine: analysis.bestLine.join(" "),
               analysisDepth: depth,
               mistakeSeverity,
+              centipawnLoss,
+              winProbabilityLoss,
               timeSpentMs: analysis.timeSpent,
             },
           });
@@ -286,10 +295,11 @@ export class AnalysisService {
           analysisResults.push({
             moveNumber: moveIndex,
             playerMove: move.san,
-            evaluation: bestEval,
+            evaluation: isWhiteMove ? bestEval : -bestEval,
             bestMove: analysis.bestMove,
             mistakeSeverity,
             centipawnLoss,
+            winProbabilityLoss,
             analysisDepth: depth,
             positionFen: currentFen,
             bestLine: analysis.bestLine.join(" "),
@@ -429,14 +439,22 @@ export class AnalysisService {
   }
 
   /**
-   * Convert Average Centipawn Loss (ACPL) to an accuracy percentage (0-100).
-   * Uses a formula modeled after Lichess's accuracy calculation.
+   * Convert centipawn evaluation to win probability percentage (0-100).
+   * Uses the Lichess sigmoid model: 100 / (1 + exp(-0.00368208 * cp))
+   * At cp=0 → 50%, cp=100 → ~59%, cp=-100 → ~41%
    */
-  private acplToAccuracy(acpl: number): number {
-    if (acpl < 0) return 100;
-    // Formula: 103.1668 * exp(-0.04354 * ACPL) - 3.1669
-    // Produces ~100% at ACPL=0, ~50% at ACPL=16, ~0% at ACPL≥80
-    const accuracy = 103.1668 * Math.exp(-0.04354 * acpl) - 3.1669;
+  static cpToWinProbability(cp: number): number {
+    return 100 / (1 + Math.exp(-0.00368208 * cp));
+  }
+
+  /**
+   * Convert average Win-Change-Loss (WCL) to an accuracy percentage (0-100).
+   * Uses the Lichess accuracy formula. WCL is on a 0-50 scale (win probability points lost).
+   * Produces ~100% at WCL=0, ~80% at WCL=5, ~50% at WCL=16, ~0% at WCL≥80
+   */
+  static wclToAccuracy(wcl: number): number {
+    if (wcl < 0) return 100;
+    const accuracy = 103.1668 * Math.exp(-0.04354 * wcl) - 3.1669;
     return Math.max(0, Math.min(100, accuracy));
   }
 
@@ -457,23 +475,23 @@ export class AnalysisService {
       ).length,
     };
 
-    // Calculate accuracy based on Average Centipawn Loss (ACPL)
+    // Calculate accuracy based on average Win-probability Change Loss (WCL)
     const whiteMoves = analysisResults.filter((r) => r.moveNumber % 2 === 1);
     const blackMoves = analysisResults.filter((r) => r.moveNumber % 2 === 0);
 
-    const whiteACPL = whiteMoves.length > 0
-      ? whiteMoves.reduce((sum, r) => sum + (r.centipawnLoss || 0), 0) / whiteMoves.length
+    const whiteWCL = whiteMoves.length > 0
+      ? whiteMoves.reduce((sum, r) => sum + (r.winProbabilityLoss || 0), 0) / whiteMoves.length
       : 0;
-    const blackACPL = blackMoves.length > 0
-      ? blackMoves.reduce((sum, r) => sum + (r.centipawnLoss || 0), 0) / blackMoves.length
+    const blackWCL = blackMoves.length > 0
+      ? blackMoves.reduce((sum, r) => sum + (r.winProbabilityLoss || 0), 0) / blackMoves.length
       : 0;
-    const overallACPL = totalMoves > 0
-      ? analysisResults.reduce((sum, r) => sum + (r.centipawnLoss || 0), 0) / totalMoves
+    const overallWCL = totalMoves > 0
+      ? analysisResults.reduce((sum, r) => sum + (r.winProbabilityLoss || 0), 0) / totalMoves
       : 0;
 
-    const whiteAccuracy = this.acplToAccuracy(whiteACPL);
-    const blackAccuracy = this.acplToAccuracy(blackACPL);
-    const overallAccuracy = this.acplToAccuracy(overallACPL);
+    const whiteAccuracy = AnalysisService.wclToAccuracy(whiteWCL);
+    const blackAccuracy = AnalysisService.wclToAccuracy(blackWCL);
+    const overallAccuracy = AnalysisService.wclToAccuracy(overallWCL);
 
     return {
       gameId,
@@ -505,6 +523,27 @@ export class AnalysisService {
     }
   }
 
+  /**
+   * Estimate win-probability loss from centipawn loss and stored evaluation.
+   * Used for legacy data that doesn't have winProbabilityLoss stored.
+   * stockfishEvaluation is stored as white-perspective, so we reconstruct
+   * the mover's perspective based on move number (odd = white, even = black).
+   */
+  private estimateWplFromCentipawnLoss(cpLoss: number, storedEval: number, moveNumber: number): number {
+    const isWhiteMove = moveNumber % 2 === 1;
+    // storedEval is white-perspective. Convert to mover's perspective.
+    // For the best eval (before the move), we approximate:
+    // bestEval (mover perspective) ≈ |storedEval| + cpLoss/2 (rough approximation)
+    // But a better approach: storedEval = bestEval from white's perspective
+    // For white moves: bestEval (mover) = storedEval
+    // For black moves: bestEval (mover) = -storedEval
+    const bestEvalMoverPerspective = isWhiteMove ? storedEval : -storedEval;
+    // playerEval = bestEval - cpLoss (from mover's perspective)
+    const playerEvalMoverPerspective = bestEvalMoverPerspective - cpLoss;
+    const wpl = AnalysisService.cpToWinProbability(bestEvalMoverPerspective) - AnalysisService.cpToWinProbability(playerEvalMoverPerspective);
+    return Math.max(0, wpl);
+  }
+
   async getGameAnalysis(gameId: string): Promise<GameAnalysis | null> {
     try {
       const analysisData = await prisma.analysis.findMany({
@@ -516,17 +555,29 @@ export class AnalysisService {
         return null;
       }
 
-      const analysisResults: AnalysisDetail[] = analysisData.map((a) => ({
-        moveNumber: a.moveNumber,
-        playerMove: a.playerMove,
-        evaluation: a.stockfishEvaluation,
-        bestMove: a.bestMove,
-        mistakeSeverity: a.mistakeSeverity || undefined,
-        centipawnLoss: this.estimateCentipawnLossFromSeverity(a.mistakeSeverity || undefined),
-        analysisDepth: a.analysisDepth,
-        positionFen: a.positionFen,
-        bestLine: a.bestLine || undefined,
-      }));
+      const analysisResults: AnalysisDetail[] = analysisData.map((a) => {
+        // Use stored centipawnLoss or estimate from severity for legacy data
+        const cpLoss = (a as any).centipawnLoss ?? this.estimateCentipawnLossFromSeverity(a.mistakeSeverity || undefined);
+
+        // Use stored winProbabilityLoss or estimate from centipawn loss + eval
+        let wpl = (a as any).winProbabilityLoss as number | null;
+        if (wpl == null) {
+          wpl = this.estimateWplFromCentipawnLoss(cpLoss, a.stockfishEvaluation, a.moveNumber);
+        }
+
+        return {
+          moveNumber: a.moveNumber,
+          playerMove: a.playerMove,
+          evaluation: a.stockfishEvaluation,
+          bestMove: a.bestMove,
+          mistakeSeverity: a.mistakeSeverity || undefined,
+          centipawnLoss: cpLoss,
+          winProbabilityLoss: wpl,
+          analysisDepth: a.analysisDepth,
+          positionFen: a.positionFen,
+          bestLine: a.bestLine || undefined,
+        };
+      });
 
       return this.calculateGameStatistics(gameId, analysisResults);
     } catch (error) {

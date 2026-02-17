@@ -24,6 +24,7 @@ export interface GameAnalysis {
     bestMove: string;
     mistakeSeverity?: string;
     centipawnLoss?: number;
+    winProbabilityLoss?: number;
     analysisDepth?: number;
     positionFen?: string;
     bestLine?: string;
@@ -65,12 +66,20 @@ export const createEmptyGameAnalysis = (gameId: string): GameAnalysis => {
 };
 
 /**
- * Convert Average Centipawn Loss (ACPL) to an accuracy percentage (0-100).
- * Uses a formula modeled after Lichess's accuracy calculation.
+ * Convert centipawn evaluation to win probability percentage (0-100).
+ * Uses the Lichess sigmoid model.
  */
-const acplToAccuracy = (acpl: number): number => {
-  if (acpl < 0) return 100;
-  const accuracy = 103.1668 * Math.exp(-0.04354 * acpl) - 3.1669;
+const cpToWinProbability = (cp: number): number => {
+  return 100 / (1 + Math.exp(-0.00368208 * cp));
+};
+
+/**
+ * Convert average Win-Change-Loss (WCL) to an accuracy percentage (0-100).
+ * Uses the Lichess accuracy formula. WCL is on a 0-50 scale.
+ */
+const wclToAccuracy = (wcl: number): number => {
+  if (wcl < 0) return 100;
+  const accuracy = 103.1668 * Math.exp(-0.04354 * wcl) - 3.1669;
   return Math.max(0, Math.min(100, accuracy));
 };
 
@@ -86,6 +95,18 @@ const estimateCentipawnLossFromSeverity = (severity?: string): number => {
     case "excellent": return 5;
     default: return 25;
   }
+};
+
+/**
+ * Estimate win-probability loss from centipawn loss and stored evaluation.
+ * Used for legacy data that doesn't have winProbabilityLoss stored.
+ */
+const estimateWplFromCentipawnLoss = (cpLoss: number, storedEval: number, moveNumber: number): number => {
+  const isWhiteMove = moveNumber % 2 === 1;
+  const bestEvalMoverPerspective = isWhiteMove ? storedEval : -storedEval;
+  const playerEvalMoverPerspective = bestEvalMoverPerspective - cpLoss;
+  const wpl = cpToWinProbability(bestEvalMoverPerspective) - cpToWinProbability(playerEvalMoverPerspective);
+  return Math.max(0, wpl);
 };
 
 /**
@@ -113,17 +134,22 @@ export const convertToGameAnalysis = (
   // If it's an array of Analysis objects (old structure), convert it
   if (Array.isArray(analysisData)) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const details = analysisData.map((move: any) => ({
-      moveNumber: move.moveNumber,
-      playerMove: move.playerMove,
-      evaluation: move.stockfishEvaluation,
-      bestMove: move.bestMove,
-      mistakeSeverity: move.mistakeSeverity,
-      centipawnLoss: move.centipawnLoss ?? estimateCentipawnLossFromSeverity(move.mistakeSeverity),
-      analysisDepth: move.analysisDepth,
-      positionFen: move.positionFen,
-      bestLine: move.bestLine,
-    }));
+    const details = analysisData.map((move: any) => {
+      const cpLoss = move.centipawnLoss ?? estimateCentipawnLossFromSeverity(move.mistakeSeverity);
+      const wpl = move.winProbabilityLoss ?? estimateWplFromCentipawnLoss(cpLoss, move.stockfishEvaluation, move.moveNumber);
+      return {
+        moveNumber: move.moveNumber,
+        playerMove: move.playerMove,
+        evaluation: move.stockfishEvaluation,
+        bestMove: move.bestMove,
+        mistakeSeverity: move.mistakeSeverity,
+        centipawnLoss: cpLoss,
+        winProbabilityLoss: wpl,
+        analysisDepth: move.analysisDepth,
+        positionFen: move.positionFen,
+        bestLine: move.bestLine,
+      };
+    });
 
     // Calculate statistics from the array
     const totalMoves = details.length;
@@ -140,23 +166,23 @@ export const convertToGameAnalysis = (
       ).length,
     };
 
-    // Calculate accuracy using ACPL (Average Centipawn Loss) based formula
+    // Calculate accuracy using average Win-probability Change Loss (WCL)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const whiteMoves = details.filter((m: any) => m.moveNumber % 2 === 1);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blackMoves = details.filter((m: any) => m.moveNumber % 2 === 0);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const whiteACPL = whiteMoves.length > 0
-      ? whiteMoves.reduce((sum: number, m: any) => sum + (m.centipawnLoss || 0), 0) / whiteMoves.length
+    const whiteWCL = whiteMoves.length > 0
+      ? whiteMoves.reduce((sum: number, m: any) => sum + (m.winProbabilityLoss || 0), 0) / whiteMoves.length
       : 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const blackACPL = blackMoves.length > 0
-      ? blackMoves.reduce((sum: number, m: any) => sum + (m.centipawnLoss || 0), 0) / blackMoves.length
+    const blackWCL = blackMoves.length > 0
+      ? blackMoves.reduce((sum: number, m: any) => sum + (m.winProbabilityLoss || 0), 0) / blackMoves.length
       : 0;
-    const overallACPL = totalMoves > 0
+    const overallWCL = totalMoves > 0
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ? details.reduce((sum: number, m: any) => sum + (m.centipawnLoss || 0), 0) / totalMoves
+      ? details.reduce((sum: number, m: any) => sum + (m.winProbabilityLoss || 0), 0) / totalMoves
       : 0;
 
     return {
@@ -164,9 +190,9 @@ export const convertToGameAnalysis = (
       totalMoves,
       analyzedMoves: totalMoves,
       accuracy: {
-        white: Math.round(acplToAccuracy(whiteACPL) * 100) / 100,
-        black: Math.round(acplToAccuracy(blackACPL) * 100) / 100,
-        overall: Math.round(acplToAccuracy(overallACPL) * 100) / 100,
+        white: Math.round(wclToAccuracy(whiteWCL) * 100) / 100,
+        black: Math.round(wclToAccuracy(blackWCL) * 100) / 100,
+        overall: Math.round(wclToAccuracy(overallWCL) * 100) / 100,
       },
       mistakes,
       analysisDetails: details,

@@ -142,6 +142,101 @@ router.post(
   })
 );
 
+// Start game analysis with SSE streaming progress
+router.post(
+  "/games/:gameId/analyze/stream",
+  asyncHandler(async (req: Request, res: Response) => {
+    const { gameId } = req.params;
+    const { depth, skipOpeningMoves, maxPositions } = req.body;
+
+    if (!gameId) {
+      res.status(400).json({
+        success: false,
+        message: "Game ID is required",
+      });
+      return;
+    }
+
+    // Check engine status before starting analysis
+    const engineStatus = await getEngineReadiness();
+    if (!engineStatus.isReady) {
+      res.status(503).json({
+        success: false,
+        message: `Cannot start analysis: ${
+          engineStatus.error || "Engine not ready"
+        }`,
+      });
+      return;
+    }
+
+    // Check if already analyzing
+    if (analysisService.isAnalyzing(gameId)) {
+      res.status(409).json({
+        success: false,
+        message: "Game analysis already in progress",
+      });
+      return;
+    }
+
+    // All validation passed — switch to SSE mode
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    let clientDisconnected = false;
+    req.on("close", () => {
+      clientDisconnected = true;
+    });
+
+    // Heartbeat to prevent proxy timeouts
+    const heartbeat = setInterval(() => {
+      if (!clientDisconnected) {
+        res.write(":heartbeat\n\n");
+      }
+    }, 15000);
+
+    const writeEvent = (type: string, data: unknown) => {
+      if (!clientDisconnected) {
+        res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
+      }
+    };
+
+    try {
+      console.log(`🚀 Starting streamed analysis for game ${gameId}`);
+
+      const result = await analysisService.analyzeGame(gameId, {
+        depth: depth ? parseInt(depth) : undefined,
+        skipOpeningMoves: skipOpeningMoves
+          ? parseInt(skipOpeningMoves)
+          : undefined,
+        maxPositions: maxPositions ? parseInt(maxPositions) : undefined,
+        onProgress: (progress) => {
+          writeEvent("progress", {
+            current: progress.current,
+            total: progress.total,
+            percentage: progress.percentage,
+            status: progress.status,
+            message: progress.message,
+          });
+        },
+      });
+
+      writeEvent("complete", { analysis: result });
+    } catch (error) {
+      console.error("Streamed analysis error:", error);
+      writeEvent("error", {
+        message: error instanceof Error ? error.message : "Analysis failed",
+      });
+    } finally {
+      clearInterval(heartbeat);
+      res.end();
+    }
+  })
+);
+
 // Get game analysis results
 router.get(
   "/games/:gameId/analysis",

@@ -56,6 +56,8 @@ model Analysis {
   bestLine            String?
   analysisDepth       Int      @default(15)
   mistakeSeverity     String?  // 'blunder', 'mistake', 'inaccuracy', 'good'
+  centipawnLoss       Float?
+  winProbabilityLoss  Float?
   timeSpentMs         Int?
   createdAt           DateTime @default(now())
   

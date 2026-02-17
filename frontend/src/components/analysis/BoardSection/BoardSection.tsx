@@ -96,9 +96,11 @@ export const BoardSection: React.FC<BoardSectionProps> = ({
           boardWidth={boardWidth}
           arePiecesDraggable={false}
           customBoardStyle={{
-            borderRadius: "8px",
-            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.3)",
+            borderRadius: "var(--board-radius, 8px)",
+            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.5)",
           }}
+          customDarkSquareStyle={{ backgroundColor: "var(--board-dark-square, #b58863)" }}
+          customLightSquareStyle={{ backgroundColor: "var(--board-light-square, #e8dcc8)" }}
         />
       </div>
 

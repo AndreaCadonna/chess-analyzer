@@ -23,6 +23,7 @@ export interface GameAnalysis {
     evaluation: number;
     bestMove: string;
     mistakeSeverity?: string;
+    centipawnLoss?: number;
     analysisDepth?: number;
     positionFen?: string;
     bestLine?: string;
@@ -64,6 +65,30 @@ export const createEmptyGameAnalysis = (gameId: string): GameAnalysis => {
 };
 
 /**
+ * Convert Average Centipawn Loss (ACPL) to an accuracy percentage (0-100).
+ * Uses a formula modeled after Lichess's accuracy calculation.
+ */
+const acplToAccuracy = (acpl: number): number => {
+  if (acpl < 0) return 100;
+  const accuracy = 103.1668 * Math.exp(-0.04354 * acpl) - 3.1669;
+  return Math.max(0, Math.min(100, accuracy));
+};
+
+/**
+ * Estimate centipawn loss from a severity classification for legacy data.
+ */
+const estimateCentipawnLossFromSeverity = (severity?: string): number => {
+  switch (severity) {
+    case "blunder": return 350;
+    case "mistake": return 200;
+    case "inaccuracy": return 75;
+    case "good": return 25;
+    case "excellent": return 5;
+    default: return 25;
+  }
+};
+
+/**
  * Convert any analysis data structure to standardized GameAnalysis format
  * Handles both new GameAnalysis structure and legacy array-based structure
  */
@@ -94,6 +119,7 @@ export const convertToGameAnalysis = (
       evaluation: move.stockfishEvaluation,
       bestMove: move.bestMove,
       mistakeSeverity: move.mistakeSeverity,
+      centipawnLoss: move.centipawnLoss ?? estimateCentipawnLossFromSeverity(move.mistakeSeverity),
       analysisDepth: move.analysisDepth,
       positionFen: move.positionFen,
       bestLine: move.bestLine,
@@ -114,40 +140,33 @@ export const convertToGameAnalysis = (
       ).length,
     };
 
-    // Calculate accuracy for white and black
+    // Calculate accuracy using ACPL (Average Centipawn Loss) based formula
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const whiteMoves = details.filter((m: any) => m.moveNumber % 2 === 1);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const blackMoves = details.filter((m: any) => m.moveNumber % 2 === 0);
 
-    const whiteGoodMoves = whiteMoves.filter(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const whiteACPL = whiteMoves.length > 0
+      ? whiteMoves.reduce((sum: number, m: any) => sum + (m.centipawnLoss || 0), 0) / whiteMoves.length
+      : 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blackACPL = blackMoves.length > 0
+      ? blackMoves.reduce((sum: number, m: any) => sum + (m.centipawnLoss || 0), 0) / blackMoves.length
+      : 0;
+    const overallACPL = totalMoves > 0
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (m: any) =>
-        m.mistakeSeverity === "good" || m.mistakeSeverity === "excellent"
-    ).length;
-    const blackGoodMoves = blackMoves.filter(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (m: any) =>
-        m.mistakeSeverity === "good" || m.mistakeSeverity === "excellent"
-    ).length;
-
-    const whiteAccuracy =
-      whiteMoves.length > 0 ? (whiteGoodMoves / whiteMoves.length) * 100 : 0;
-    const blackAccuracy =
-      blackMoves.length > 0 ? (blackGoodMoves / blackMoves.length) * 100 : 0;
-    const overallAccuracy =
-      totalMoves > 0
-        ? ((whiteGoodMoves + blackGoodMoves) / totalMoves) * 100
-        : 0;
+      ? details.reduce((sum: number, m: any) => sum + (m.centipawnLoss || 0), 0) / totalMoves
+      : 0;
 
     return {
       gameId,
       totalMoves,
       analyzedMoves: totalMoves,
       accuracy: {
-        white: Math.round(whiteAccuracy * 100) / 100,
-        black: Math.round(blackAccuracy * 100) / 100,
-        overall: Math.round(overallAccuracy * 100) / 100,
+        white: Math.round(acplToAccuracy(whiteACPL) * 100) / 100,
+        black: Math.round(acplToAccuracy(blackACPL) * 100) / 100,
+        overall: Math.round(acplToAccuracy(overallACPL) * 100) / 100,
       },
       mistakes,
       analysisDetails: details,

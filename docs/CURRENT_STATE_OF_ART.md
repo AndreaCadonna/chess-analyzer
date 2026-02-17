@@ -103,14 +103,15 @@ chess-analyzer/
 
 - **Automatic Restart** - Engine failure recovery (up to 3 attempts)
 - **Health Monitoring** - Heartbeat system with engine status checks
-- **Queue Management** - Handle multiple analysis requests
+- **Stop Command** - Ability to abort in-progress analysis
 - **Error Recovery** - Comprehensive error handling and logging
 - **Process Lifecycle** - Proper engine startup/shutdown management
 
 ### **✅ Analysis Features**
 
 - Real Stockfish evaluations (not mock data)
-- Centipawn-based move classification
+- Centipawn-based move classification with perspective-aware loss calculation
+- ACPL-based accuracy metric (comparable to Lichess)
 - Analysis depth configuration (10-25 ply)
 - Opening move skipping options
 - Position limit controls for analysis scope
@@ -119,8 +120,8 @@ chess-analyzer/
 
 - **Real-time Position Analysis** - Server-Sent Events (SSE) streaming
 - **Session Management** - Automatic cleanup and reconnection logic
-- **Multi-PV Analysis** - Multiple best move suggestions
-- **Configurable Settings** - Depth, time limits, analysis options
+- **Real Multi-PV Analysis** - Multiple best move suggestions from Stockfish
+- **Configurable Settings** - Depth, time limits, MultiPV analysis options
 - **Error Handling** - Robust reconnection and error recovery
 
 ---

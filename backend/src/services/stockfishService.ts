@@ -617,9 +617,6 @@ export class StockfishService extends EventEmitter {
       };
 
       try {
-        // Send analysis commands
-        this.sendCommand("ucinewgame");
-
         // Configure MultiPV if requested
         if (multiPV > 1) {
           this.sendCommand(`setoption name MultiPV value ${multiPV}`);
@@ -637,8 +634,22 @@ export class StockfishService extends EventEmitter {
     });
   }
 
-  classifyMove(previousEval: number, currentEval: number): MoveClassification {
-    const centipawnLoss = Math.abs(currentEval - previousEval);
+  classifyMove(previousEval: number, currentEval: number, isWhiteMove: boolean): MoveClassification {
+    // Calculate centipawn loss from the moving player's perspective.
+    // Stockfish evaluations are always from White's perspective:
+    //   positive = White is better, negative = Black is better
+    let centipawnLoss: number;
+
+    if (isWhiteMove) {
+      // For White: if eval decreases, White's position worsened
+      centipawnLoss = previousEval - currentEval;
+    } else {
+      // For Black: if eval increases (more positive), Black's position worsened
+      centipawnLoss = currentEval - previousEval;
+    }
+
+    // Only consider actual losses; negative loss means the player improved
+    centipawnLoss = Math.max(0, centipawnLoss);
 
     let classification: MoveClassification["classification"];
 
@@ -660,6 +671,31 @@ export class StockfishService extends EventEmitter {
       classification,
       centipawnLoss,
     };
+  }
+
+  /**
+   * Send UCI 'stop' command to abort the current analysis.
+   * If an analysis is in progress, it will resolve with whatever
+   * partial results are available when bestmove arrives.
+   */
+  stopAnalysis(): void {
+    if (!this.currentEngine?.stdin || !this.currentAnalysis) {
+      return;
+    }
+    console.log(`⏹️ Stopping current analysis`);
+    this.sendCommand("stop");
+  }
+
+  /**
+   * Send UCI 'ucinewgame' to clear the engine's transposition table
+   * and internal state. Call this once before analyzing a new game,
+   * NOT before every position.
+   */
+  newGame(): void {
+    if (!this.isReady) {
+      throw new Error("Stockfish engine not ready");
+    }
+    this.sendCommand("ucinewgame");
   }
 
   async shutdown(): Promise<void> {

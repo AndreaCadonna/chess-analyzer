@@ -1,7 +1,6 @@
 // backend/src/services/liveAnalysisService.ts
 import { EventEmitter } from "events";
 import { getStockfishService } from "./stockfishService";
-import type { PositionAnalysis } from "./stockfishService";
 
 export interface LiveAnalysisOptions {
   depth?: number;
@@ -212,13 +211,12 @@ export class LiveAnalysisService extends EventEmitter {
       // Get fresh engine instance
       const stockfish = await getStockfishService();
 
-      // For now, we'll do a single analysis call
-      // TODO: In the future, we can implement true streaming analysis
       const startTime = Date.now();
 
       const result = await stockfish.analyzePosition(fen, {
         depth: analysisOptions.depth,
         timeLimit: analysisOptions.timeLimit,
+        multiPV: analysisOptions.multiPV,
       });
 
       const analysisTime = Date.now() - startTime;
@@ -229,13 +227,15 @@ export class LiveAnalysisService extends EventEmitter {
         return;
       }
 
-      // For now, simulate multi-PV by creating variations of the result
-      // TODO: Implement true multi-PV analysis in stockfishService
-      const lines = this.simulateMultiPV(result, analysisOptions.multiPV);
-
       const analysisResult: LiveAnalysisResult = {
         fen,
-        lines,
+        lines: result.lines.map(line => ({
+          evaluation: line.evaluation,
+          bestMove: line.bestMove,
+          pv: line.pv,
+          depth: line.depth,
+          multiPvIndex: line.multiPvIndex,
+        })),
         analysisTime,
         isComplete: true,
       };
@@ -274,37 +274,6 @@ export class LiveAnalysisService extends EventEmitter {
         this.currentSession.isAnalyzing = false;
       }
     }
-  }
-
-  private simulateMultiPV(
-    result: PositionAnalysis,
-    multiPV: number
-  ): LiveAnalysisResult["lines"] {
-    // For now, create simulated variations
-    // TODO: Replace with real multi-PV analysis
-    const lines = [];
-
-    // Main line
-    lines.push({
-      evaluation: result.evaluation,
-      bestMove: result.bestMove,
-      pv: result.bestLine,
-      depth: result.depth,
-      multiPvIndex: 1,
-    });
-
-    // Simulate additional lines with slightly lower evaluations
-    for (let i = 2; i <= Math.min(multiPV, 3); i++) {
-      lines.push({
-        evaluation: result.evaluation - (i - 1) * 0.2,
-        bestMove: result.bestMove, // TODO: Get actual alternative moves
-        pv: result.bestLine,
-        depth: result.depth,
-        multiPvIndex: i,
-      });
-    }
-
-    return lines;
   }
 
   updateSettings(settings: Partial<LiveAnalysisOptions>): void {

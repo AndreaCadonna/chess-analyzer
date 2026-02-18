@@ -31,6 +31,7 @@ export interface LiveAnalysisState {
   // Analysis state
   isAnalyzing: boolean;
   currentResult: LiveAnalysisResult | null;
+  partialResult: LiveAnalysisResult | null;
   lastAnalyzedFen: string | null;
 
   // Settings
@@ -64,6 +65,7 @@ export const useLiveAnalysis = (): [LiveAnalysisState, LiveAnalysisActions] => {
     sessionId: null,
     isAnalyzing: false,
     currentResult: null,
+    partialResult: null,
     lastAnalyzedFen: null,
     settings: DEFAULT_SETTINGS,
     error: null,
@@ -129,7 +131,21 @@ export const useLiveAnalysis = (): [LiveAnalysisState, LiveAnalysisActions] => {
               setState((prev) => ({
                 ...prev,
                 isAnalyzing: true,
+                partialResult: null,
                 error: null,
+              }));
+              break;
+
+            case "analysis_progress":
+              setState((prev) => ({
+                ...prev,
+                partialResult: {
+                  fen: data.data.fen,
+                  lines: data.data.lines,
+                  analysisTime: 0,
+                  isComplete: false,
+                },
+                lastAnalyzedFen: data.data.fen,
               }));
               break;
 
@@ -138,6 +154,7 @@ export const useLiveAnalysis = (): [LiveAnalysisState, LiveAnalysisActions] => {
                 ...prev,
                 isAnalyzing: false,
                 currentResult: data.data,
+                partialResult: null,
                 lastAnalyzedFen: data.data.fen,
                 error: null,
               }));
@@ -270,6 +287,7 @@ export const useLiveAnalysis = (): [LiveAnalysisState, LiveAnalysisActions] => {
         sessionId: null,
         isAnalyzing: false,
         currentResult: null,
+        partialResult: null,
         lastAnalyzedFen: null,
       }));
     }

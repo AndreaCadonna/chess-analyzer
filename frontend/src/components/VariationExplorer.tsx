@@ -67,6 +67,11 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
   const [analysisDepth, setAnalysisDepth] = useState(20);
   const [analysisTimeLimit, setAnalysisTimeLimit] = useState(15000);
 
+  // Prefer final result over partial; show whichever is available
+  const effectiveResult = useMemo(() => {
+    return liveAnalysisState.currentResult || liveAnalysisState.partialResult;
+  }, [liveAnalysisState.currentResult, liveAnalysisState.partialResult]);
+
   // Legal moves for current position
   const positionAnalysis = useMemo(() => {
     return ChessUtils.analyzePosition(currentFen);
@@ -88,9 +93,9 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
     const arrows: any[] = [];
 
     // Show current analysis best move
-    if (liveAnalysisState.currentResult?.lines[0]?.bestMove) {
+    if (effectiveResult?.lines[0]?.bestMove) {
       try {
-        const bestMove = liveAnalysisState.currentResult.lines[0].bestMove;
+        const bestMove = effectiveResult.lines[0].bestMove;
         if (bestMove.length >= 4) {
           const fromSquare = bestMove.substring(0, 2) as Square;
           const toSquare = bestMove.substring(2, 4) as Square;
@@ -109,8 +114,8 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
     }
 
     // Show alternative moves with different colors
-    if (liveAnalysisState.currentResult?.lines) {
-      liveAnalysisState.currentResult.lines
+    if (effectiveResult?.lines) {
+      effectiveResult.lines
         .slice(1, 3)
         .forEach((line, index) => {
           try {
@@ -138,7 +143,7 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
     }
 
     return arrows;
-  }, [liveAnalysisState.currentResult]);
+  }, [effectiveResult]);
 
   // Initialize live analysis session
   useEffect(() => {
@@ -158,11 +163,11 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
   }, []);
 
   // Auto-analyze current position
+  // No isAnalyzing guard: new positions cancel the in-flight analysis on the backend
   useEffect(() => {
     if (
       autoAnalyze &&
       liveAnalysisState.isConnected &&
-      !liveAnalysisState.isAnalyzing &&
       currentFen &&
       liveAnalysisState.lastAnalyzedFen !== currentFen
     ) {
@@ -179,7 +184,6 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
     currentFen,
     autoAnalyze,
     liveAnalysisState.isConnected,
-    liveAnalysisState.isAnalyzing,
     liveAnalysisState.lastAnalyzedFen,
     analysisDepth,
     analysisTimeLimit,
@@ -291,7 +295,7 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
     if (!gameMove) return null;
 
     const currentEvaluation =
-      liveAnalysisState.currentResult?.lines[0]?.evaluation;
+      effectiveResult?.lines[0]?.evaluation;
     const gameEvaluation = gameMove.evaluation;
 
     if (currentEvaluation !== undefined && gameEvaluation !== undefined) {
@@ -307,7 +311,7 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
     }
 
     return null;
-  }, [variationMoves, gameLine, liveAnalysisState.currentResult]);
+  }, [variationMoves, gameLine, effectiveResult]);
 
   const gameComparison = getGameLineComparison();
 
@@ -522,11 +526,19 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
           </div>
 
           {/* Current Analysis Results */}
-          {liveAnalysisState.currentResult && (
+          {effectiveResult && (
             <div className="current-analysis">
-              <h3>📊 Position Analysis</h3>
+              <h3>
+                Position Analysis
+                {effectiveResult.lines[0] && (
+                  <span className="depth-indicator">
+                    {" "}Depth {effectiveResult.lines[0].depth}
+                    {!effectiveResult.isComplete && `/${analysisDepth}...`}
+                  </span>
+                )}
+              </h3>
               <div className="analysis-lines">
-                {liveAnalysisState.currentResult.lines.map((line, index) => (
+                {effectiveResult.lines.map((line, index) => (
                   <div
                     key={index}
                     className={`analysis-line line-${index + 1}`}
@@ -547,8 +559,9 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
               </div>
               <div className="analysis-info">
                 <span>
-                  Analysis time: {liveAnalysisState.currentResult.analysisTime}
-                  ms
+                  {effectiveResult.isComplete
+                    ? `Analysis time: ${effectiveResult.analysisTime}ms`
+                    : "Analyzing..."}
                 </span>
                 <span>
                   Turn: {positionAnalysis.turn === "w" ? "White" : "Black"} to
@@ -923,6 +936,13 @@ export const VariationExplorer: React.FC<VariationExplorerProps> = ({
         .current-analysis h3 {
           margin: 0 0 15px 0;
           color: #2c3e50;
+        }
+
+        .depth-indicator {
+          font-size: 0.75em;
+          font-weight: normal;
+          color: #6c757d;
+          font-family: monospace;
         }
 
         .analysis-lines {

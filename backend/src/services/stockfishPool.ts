@@ -4,6 +4,7 @@ import {
   StockfishConfig,
   PositionAnalysis,
   AnalysisOptions,
+  AnalysisLine,
 } from "./stockfishService";
 
 export interface PoolConfig {
@@ -17,6 +18,12 @@ export interface PoolConfig {
 
 type TaskPriority = "batch" | "live";
 
+export interface AnalysisProgressInfo {
+  fen: string;
+  lines: Partial<AnalysisLine>[];
+  depth: number;
+}
+
 interface PoolTask {
   id: number;
   fen: string;
@@ -27,6 +34,7 @@ interface PoolTask {
   enqueuedAt: number;
   retryCount: number;
   maxRetries: number;
+  onProgress?: (info: AnalysisProgressInfo) => void;
 }
 
 type WorkerStatus = "idle" | "busy" | "crashed" | "restarting";
@@ -162,7 +170,8 @@ export class StockfishPool extends EventEmitter {
   analyzePosition(
     fen: string,
     options: AnalysisOptions = {},
-    priority: TaskPriority = "batch"
+    priority: TaskPriority = "batch",
+    onProgress?: (info: AnalysisProgressInfo) => void
   ): Promise<PositionAnalysis> {
     if (this.isShuttingDown) {
       return Promise.reject(new Error("Pool is shutting down"));
@@ -187,6 +196,7 @@ export class StockfishPool extends EventEmitter {
         enqueuedAt: Date.now(),
         retryCount: 0,
         maxRetries: 2,
+        onProgress,
       };
 
       this.taskQueue.push(task);
@@ -316,6 +326,17 @@ export class StockfishPool extends EventEmitter {
     worker.status = "busy";
     worker.currentTask = task;
 
+    // Forward intermediate analysis events if caller wants them
+    const infoHandler = task.onProgress
+      ? (info: AnalysisProgressInfo) => {
+          task.onProgress!(info);
+        }
+      : null;
+
+    if (infoHandler) {
+      worker.engine.on("analysis-info", infoHandler);
+    }
+
     // Wrap with timeout
     const timeoutHandle = setTimeout(() => {
       if (worker.currentTask === task) {
@@ -362,6 +383,10 @@ export class StockfishPool extends EventEmitter {
         }
       })
       .finally(() => {
+        // Clean up the info listener
+        if (infoHandler) {
+          worker.engine.removeListener("analysis-info", infoHandler);
+        }
         if (worker.currentTask === task) {
           worker.currentTask = null;
           if (worker.status === "busy") {
@@ -370,6 +395,16 @@ export class StockfishPool extends EventEmitter {
         }
         this.dispatch();
       });
+  }
+
+  stopLiveTask(): void {
+    for (const worker of this.workers) {
+      if (worker.reserved && worker.status === "busy" && worker.currentTask) {
+        console.log(`⏹️ Stopping live task ${worker.currentTask.id} on worker ${worker.id}`);
+        worker.engine.stopAnalysis();
+        break;
+      }
+    }
   }
 
   private handleWorkerCrash(workerId: number): void {

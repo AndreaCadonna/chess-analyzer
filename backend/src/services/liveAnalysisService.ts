@@ -188,8 +188,12 @@ export class LiveAnalysisService extends EventEmitter {
     // Stop any current analysis
     if (this.currentSession.isAnalyzing) {
       console.log(`⏹️ Stopping current analysis to start new one`);
-      // Note: We can't actually stop Stockfish mid-analysis yet,
-      // but we can ignore the results when they come in
+      try {
+        const stopPool = await getStockfishPool();
+        stopPool.stopLiveTask();
+      } catch {
+        // Pool not available, ignore
+      }
     }
 
     this.currentSession.isAnalyzing = true;
@@ -213,11 +217,42 @@ export class LiveAnalysisService extends EventEmitter {
 
       const startTime = Date.now();
 
-      const result = await pool.analyzePosition(fen, {
-        depth: analysisOptions.depth,
-        timeLimit: analysisOptions.timeLimit,
-        multiPV: analysisOptions.multiPV,
-      }, "live");
+      const result = await pool.analyzePosition(
+        fen,
+        {
+          depth: analysisOptions.depth,
+          timeLimit: analysisOptions.timeLimit,
+          multiPV: analysisOptions.multiPV,
+        },
+        "live",
+        (info) => {
+          // Forward intermediate depth results as progress events
+          if (!this.currentSession || this.currentSession.currentPosition !== fen) {
+            return;
+          }
+
+          const progressEvent: LiveAnalysisEvent = {
+            type: LiveAnalysisEventType.ANALYSIS_PROGRESS,
+            sessionId: this.currentSession.sessionId,
+            timestamp: new Date().toISOString(),
+            data: {
+              fen: info.fen,
+              depth: info.depth,
+              lines: info.lines
+                .filter(line => line.evaluation !== undefined && line.bestMove && line.pv)
+                .map(line => ({
+                  evaluation: line.evaluation,
+                  bestMove: line.bestMove,
+                  pv: line.pv,
+                  depth: line.depth,
+                  multiPvIndex: line.multiPvIndex,
+                })),
+              isComplete: false,
+            },
+          };
+          this.emit("analysisEvent", progressEvent);
+        }
+      );
 
       const analysisTime = Date.now() - startTime;
 

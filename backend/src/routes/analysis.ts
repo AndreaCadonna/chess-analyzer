@@ -2,45 +2,41 @@
 import { Router, Request, Response } from "express";
 import asyncHandler from "express-async-handler";
 import { AnalysisService } from "../services/analysisService";
-import { getStockfishService } from "../services/stockfishService";
+import { getStockfishPool } from "../services/stockfishPool";
 
 const router = Router();
 const analysisService = new AnalysisService();
 
-// Helper function to safely check engine status
+// Helper function to safely check engine status via pool
 async function getEngineReadiness(): Promise<{
   isReady: boolean;
   error?: string;
   engineType?: string;
   version?: string;
+  poolStats?: {
+    totalWorkers: number;
+    batchWorkers: number;
+    reservedWorkers: number;
+    idleWorkers: number;
+    busyWorkers: number;
+    crashedWorkers: number;
+    queueLength: number;
+  };
 }> {
   try {
-    const stockfish = await getStockfishService();
+    const pool = await getStockfishPool();
+    const stats = pool.getStats();
+    const hasWorkers = stats.idleWorkers + stats.busyWorkers > 0;
 
-    // Check if the service exists and has the required method
-    if (!stockfish) {
-      return {
-        isReady: false,
-        error: "Stockfish service not available",
-      };
-    }
-
-    // Check if isEngineReady method exists and call it safely
-    if (typeof stockfish.isEngineReady === "function") {
-      const isReady = stockfish.isEngineReady();
-      return {
-        isReady,
-        engineType: "Stockfish",
-        version: "Latest",
-        error: isReady ? undefined : "Engine not ready",
-      };
-    } else {
-      // Method doesn't exist - this indicates a service initialization issue
-      return {
-        isReady: false,
-        error: "Engine service not properly initialized",
-      };
-    }
+    return {
+      isReady: hasWorkers,
+      engineType: "Stockfish",
+      version: "17.1",
+      error: hasWorkers
+        ? undefined
+        : `All ${stats.totalWorkers} workers are crashed`,
+      poolStats: stats,
+    };
   } catch (error) {
     console.error("Engine readiness check failed:", error);
     return {
@@ -365,9 +361,9 @@ router.post(
     }
 
     try {
-      const stockfish = await getStockfishService();
+      const pool = await getStockfishPool();
 
-      const analysis = await stockfish.analyzePosition(fen, {
+      const analysis = await pool.analyzePosition(fen, {
         depth: depth ? parseInt(depth) : 15,
         timeLimit: timeLimit ? parseInt(timeLimit) : 5000,
       });
@@ -448,6 +444,7 @@ router.get(
             engineReady: true,
             engineType: engineStatus.engineType || "Stockfish",
             version: engineStatus.version || "Latest",
+            pool: engineStatus.poolStats,
           },
         });
       } else {

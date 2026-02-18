@@ -43,8 +43,16 @@ export interface EngineInfo {
   multiPv?: number;
 }
 
+export interface StockfishConfig {
+  enginePath?: string;
+  threads?: number;   // default: 2
+  hash?: number;      // default: 128
+}
+
 export class StockfishService extends EventEmitter {
   private enginePath: string;
+  private threads: number;
+  private hash: number;
   private currentEngine: ChildProcess | null = null;
   private isReady: boolean = false;
   private isInitializing: boolean = false;
@@ -76,15 +84,17 @@ export class StockfishService extends EventEmitter {
   private lastInfoEmit: number = 0;
   private minInfoEmitInterval: number = 200; // 5 updates per second
 
-  constructor() {
+  constructor(config: StockfishConfig = {}) {
     super();
 
     // Default engine path - will be configurable via environment
     this.enginePath =
-      process.env.STOCKFISH_PATH || this.getDefaultStockfishPath();
+      config.enginePath || process.env.STOCKFISH_PATH || this.getDefaultStockfishPath();
+    this.threads = config.threads ?? 2;
+    this.hash = config.hash ?? 128;
 
     console.log(
-      `🔥 Stockfish service initialized with path: ${this.enginePath}`
+      `🔥 Stockfish service initialized with path: ${this.enginePath} (threads=${this.threads}, hash=${this.hash}MB)`
     );
 
     // Set up heartbeat monitoring
@@ -353,8 +363,8 @@ export class StockfishService extends EventEmitter {
 
   private configureEngine(): void {
     // Configure engine settings
-    this.sendCommand("setoption name Threads value 2");
-    this.sendCommand("setoption name Hash value 128");
+    this.sendCommand(`setoption name Threads value ${this.threads}`);
+    this.sendCommand(`setoption name Hash value ${this.hash}`);
     this.sendCommand("setoption name MultiPV value 1");
     this.sendCommand("isready");
   }

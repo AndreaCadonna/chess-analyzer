@@ -92,8 +92,8 @@ export class AnalysisService {
       console.log(`🚀 Initializing Stockfish pool...`);
       const pool = await getStockfishPool();
 
-      if (!pool.hasAvailableWorkers()) {
-        throw new Error("Stockfish pool has no available workers");
+      if (!pool.hasBatchWorkers()) {
+        throw new Error("Stockfish pool has no available batch workers");
       }
 
       const poolStats = pool.getStats();

@@ -240,6 +240,12 @@ export class StockfishPool extends EventEmitter {
     );
   }
 
+  hasBatchWorkers(): boolean {
+    return this.workers.some(
+      (w) => !w.reserved && (w.status === "idle" || w.status === "busy")
+    );
+  }
+
   async shutdown(): Promise<void> {
     console.log("🔥 Shutting down StockfishPool...");
     this.isShuttingDown = true;
@@ -447,6 +453,7 @@ export const getStockfishPool = async (): Promise<StockfishPool> => {
 
       poolInstance = new StockfishPool();
       await poolInstance.initialize();
+      poolInitPromise = null;
       return poolInstance;
     } catch (error) {
       poolInstance = null;

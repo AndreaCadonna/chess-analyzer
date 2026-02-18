@@ -26,15 +26,15 @@ async function getEngineReadiness(): Promise<{
   try {
     const pool = await getStockfishPool();
     const stats = pool.getStats();
-    const hasWorkers = stats.idleWorkers + stats.busyWorkers > 0;
+    const hasBatchAvailable = pool.hasBatchWorkers();
 
     return {
-      isReady: hasWorkers,
+      isReady: hasBatchAvailable,
       engineType: "Stockfish",
       version: "17.1",
-      error: hasWorkers
+      error: hasBatchAvailable
         ? undefined
-        : `All ${stats.totalWorkers} workers are crashed`,
+        : "No healthy batch workers available for analysis",
       poolStats: stats,
     };
   } catch (error) {

@@ -74,7 +74,7 @@ app.use(errorHandler);
 // Graceful shutdown
 const shutdown = async () => {
   console.log('🔥 Shutting down gracefully...');
-  
+
   try {
     const { getLiveAnalysisService } = await import('./services/liveAnalysisService');
     const liveAnalysisService = getLiveAnalysisService();
@@ -83,7 +83,16 @@ const shutdown = async () => {
   } catch (error) {
     console.error('❌ Error shutting down live analysis service:', error);
   }
-  
+
+  try {
+    const { getStockfishPool } = await import('./services/stockfishPool');
+    const pool = await getStockfishPool();
+    await pool.shutdown();
+    console.log('✅ Stockfish pool shut down');
+  } catch (error) {
+    console.error('❌ Error shutting down Stockfish pool:', error);
+  }
+
   process.exit(0);
 };
 

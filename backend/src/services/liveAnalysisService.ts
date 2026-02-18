@@ -1,6 +1,6 @@
 // backend/src/services/liveAnalysisService.ts
 import { EventEmitter } from "events";
-import { getStockfishService } from "./stockfishService";
+import { getStockfishPool } from "./stockfishPool";
 
 export interface LiveAnalysisOptions {
   depth?: number;
@@ -102,11 +102,11 @@ export class LiveAnalysisService extends EventEmitter {
       await this.closeSession();
     }
 
-    // Verify engine is available
+    // Verify engine pool is available
     try {
-      const stockfish = await getStockfishService();
-      if (!stockfish.isEngineReady()) {
-        throw new Error("Stockfish engine not ready");
+      const pool = await getStockfishPool();
+      if (!pool.hasAvailableWorkers()) {
+        throw new Error("Stockfish pool has no available workers");
       }
     } catch (error) {
       const errorEvent: LiveAnalysisEvent = {
@@ -208,16 +208,16 @@ export class LiveAnalysisService extends EventEmitter {
     this.emit("analysisEvent", startEvent);
 
     try {
-      // Get fresh engine instance
-      const stockfish = await getStockfishService();
+      // Get pool and analyze with live priority (uses reserved worker)
+      const pool = await getStockfishPool();
 
       const startTime = Date.now();
 
-      const result = await stockfish.analyzePosition(fen, {
+      const result = await pool.analyzePosition(fen, {
         depth: analysisOptions.depth,
         timeLimit: analysisOptions.timeLimit,
         multiPV: analysisOptions.multiPV,
-      });
+      }, "live");
 
       const analysisTime = Date.now() - startTime;
 

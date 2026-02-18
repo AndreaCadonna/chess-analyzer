@@ -1,6 +1,7 @@
-import { Chess } from "chess.js";
+import { Chess, Move } from "chess.js";
 import { prisma } from "../config/database";
-import { AnalysisLine, getStockfishService } from "./stockfishService";
+import { AnalysisLine, PositionAnalysis } from "./stockfishService";
+import { getStockfishPool, StockfishPool } from "./stockfishPool";
 
 export interface AnalysisOptions {
   depth?: number;
@@ -87,19 +88,21 @@ export class AnalysisService {
       console.log(`🎯 Starting analysis for game ${gameId}`);
       console.log(`📖 PGN Preview: ${game.pgn.substring(0, 200)}...`);
 
-      // Initialize Stockfish service
-      console.log(`🚀 Initializing Stockfish engine...`);
-      const stockfish = await getStockfishService();
+      // Initialize Stockfish pool
+      console.log(`🚀 Initializing Stockfish pool...`);
+      const pool = await getStockfishPool();
 
-      // Verify engine is ready
-      if (!stockfish.isEngineReady()) {
-        throw new Error("Stockfish engine is not ready");
+      if (!pool.hasAvailableWorkers()) {
+        throw new Error("Stockfish pool has no available workers");
       }
 
-      console.log(`✅ Stockfish engine ready - proceeding with analysis`);
+      const poolStats = pool.getStats();
+      console.log(
+        `✅ Stockfish pool ready - ${poolStats.batchWorkers} batch workers available`
+      );
 
-      // Clear engine state once for the entire game analysis
-      stockfish.newGame();
+      // Clear engine state on all batch workers for this game
+      pool.newGame();
 
       // Initialize chess engine and load the game
       const chess = new Chess();
@@ -127,222 +130,202 @@ export class AnalysisService {
         return this.createEmptyAnalysis(gameId);
       }
 
-      // Filter moves to analyze (skip opening moves)
-      const movesToAnalyze = moveHistory.slice(actualSkipMoves);
-      const finalMovesToAnalyze = maxPositions
-        ? movesToAnalyze.slice(0, maxPositions)
-        : movesToAnalyze;
-
-      console.log(
-        `Analyzing ${finalMovesToAnalyze.length} positions (skipped first ${actualSkipMoves} moves)`
-      );
-
-      // Reset the chess position and replay moves step by step
+      // ── PHASE 1: Pre-compute all FENs (fast, sequential) ──
       chess.reset();
-      const analysisResults: AnalysisDetail[] = [];
 
-      // Replay the game move by move and analyze each position
+      interface PositionInfo {
+        moveIndex: number;
+        move: Move;
+        fenBefore: string;
+        fenAfter: string;
+        isWhiteMove: boolean;
+      }
+
+      const positions: PositionInfo[] = [];
+
       for (let i = 0; i < moveHistory.length; i++) {
-        const moveIndex = i + 1; // Move numbers start at 1
+        const fenBefore = chess.fen();
         const move = moveHistory[i];
 
-        // Only analyze moves after the skip threshold
-        if (i < actualSkipMoves) {
-          // Still need to apply the move to maintain proper position
-          try {
-            chess.move(move.san);
-          } catch (error) {
-            console.error(
-              `❌ Failed to apply move ${moveIndex}: ${move.san}`,
-              error
-            );
-            continue;
-          }
-          continue;
+        try {
+          chess.move(move.san);
+        } catch (error) {
+          console.error(`❌ Failed to replay move ${i + 1}: ${move.san}`, error);
+          break;
         }
 
-        const analysisIndex = i - actualSkipMoves;
+        const fenAfter = chess.fen();
 
-        // Update progress
-        const progress = Math.round(
-          ((analysisIndex + 1) / finalMovesToAnalyze.length) * 100
-        );
-        onProgress?.({
-          current: analysisIndex + 1,
-          total: finalMovesToAnalyze.length,
-          percentage: progress,
-          status: "analyzing",
-          message: `Analyzing move ${moveIndex}: ${move.san} (${progress}%)`,
-        });
+        if (i >= actualSkipMoves) {
+          positions.push({
+            moveIndex: i + 1,
+            move,
+            fenBefore,
+            fenAfter,
+            isWhiteMove: (i + 1) % 2 === 1,
+          });
+        }
+      }
 
-        console.log(
-          `🔍 Analyzing move ${moveIndex}: ${move.san} (${progress}%)`
-        );
+      const finalPositions = maxPositions
+        ? positions.slice(0, maxPositions)
+        : positions;
 
+      const totalToAnalyze = finalPositions.length;
+      console.log(
+        `Analyzing ${totalToAnalyze} positions in parallel (skipped first ${actualSkipMoves} moves)`
+      );
+
+      // ── PHASE 2: Parallel analysis with bounded concurrency ──
+      const results = new Map<number, AnalysisDetail>();
+      let completedCount = 0;
+
+      const analyzeOneMove = async (pos: PositionInfo): Promise<void> => {
         try {
-          // Get current position FEN BEFORE the move was played
-          const currentFen = chess.fen();
-          const isWhiteMove = moveIndex % 2 === 1;
-
-          // Analyze position with MultiPV=3 to get top 3 engine moves
-          // This is MORE ACCURATE and FASTER (only 1 analysis instead of 2!)
+          // First analysis: pre-move position with MultiPV=3
           const analysis = await this.analyzePositionWithRetry(
-            stockfish,
-            currentFen,
+            pool,
+            pos.fenBefore,
             depth,
             3, // max retries
             3  // MultiPV - get top 3 moves
           );
 
-          console.log(
-            `✅ Stockfish analysis complete: ${analysis.lines.length} lines, best=${analysis.bestMove} (${analysis.evaluation})`
-          );
-
           // Get the player's actual move in UCI format for comparison
-          const playerMoveUci = move.from + move.to + (move.promotion || "");
+          const playerMoveUci =
+            pos.move.from + pos.move.to + (pos.move.promotion || "");
 
           // Find which line (if any) the player's move matches
-          const playerMoveLine = analysis.lines.find((line: AnalysisLine) =>
-            line.bestMove === playerMoveUci || line.pv[0] === playerMoveUci
+          const playerMoveLine = analysis.lines.find(
+            (line: AnalysisLine) =>
+              line.bestMove === playerMoveUci || line.pv[0] === playerMoveUci
           );
 
-          // Calculate centipawn loss from player's perspective
           const bestEval = analysis.lines[0].evaluation;
           const playerEval = playerMoveLine?.evaluation;
 
           let centipawnLoss = 0;
           let mistakeSeverity = "good";
-
           let winProbabilityLoss = 0;
 
           if (playerEval !== undefined) {
             // Player's move was in top 3 engine moves
-            // Calculate loss from player's perspective
-            // Both evals are from the same MultiPV analysis (same perspective).
-            // bestEval >= playerEval always in MultiPV ordering.
-            centipawnLoss = bestEval - playerEval;
-
-            // Clamp to 0 minimum (can't have negative loss)
-            centipawnLoss = Math.max(0, centipawnLoss);
-
-            // Compute win probability loss (WCL) for accuracy formula
-            winProbabilityLoss = AnalysisService.cpToWinProbability(bestEval) - AnalysisService.cpToWinProbability(playerEval);
-            winProbabilityLoss = Math.max(0, winProbabilityLoss);
-
+            centipawnLoss = Math.max(0, bestEval - playerEval);
+            winProbabilityLoss = Math.max(
+              0,
+              AnalysisService.cpToWinProbability(bestEval) -
+                AnalysisService.cpToWinProbability(playerEval)
+            );
             mistakeSeverity = this.classifyMoveByLoss(centipawnLoss);
-
-            console.log(
-              `🎯 Move found in engine lines (line ${playerMoveLine.multiPvIndex}): loss=${centipawnLoss}cp, wcl=${winProbabilityLoss.toFixed(2)}, severity=${mistakeSeverity}`
-            );
           } else {
-            // Player's move was NOT in top 3 - need to analyze it separately
-            console.log(
-              `⚠️ Player move ${move.san} not in top 3, analyzing separately...`
-            );
-
-            // Apply the move and analyze the resulting position
-            chess.move(move.san);
+            // Player's move NOT in top 3 — analyze the resulting position
             const afterMoveAnalysis = await this.analyzePositionWithRetry(
-              stockfish,
-              chess.fen(),
+              pool,
+              pos.fenAfter,
               depth,
               2 // fewer retries
             );
 
-            // bestEval = from moving player's perspective (before move)
-            // afterMoveAnalysis.evaluation = from opponent's perspective (after move)
-            // Adding gives the eval loss from the mover's viewpoint.
-            centipawnLoss = bestEval + afterMoveAnalysis.evaluation;
-
-            centipawnLoss = Math.max(0, centipawnLoss);
-
-            // playerEval from mover's perspective = -(opponent's eval after move)
-            const playerEvalFromMove = -afterMoveAnalysis.evaluation;
-            winProbabilityLoss = AnalysisService.cpToWinProbability(bestEval) - AnalysisService.cpToWinProbability(playerEvalFromMove);
-            winProbabilityLoss = Math.max(0, winProbabilityLoss);
-
-            mistakeSeverity = this.classifyMoveByLoss(centipawnLoss);
-
-            console.log(
-              `📊 After-move analysis: eval=${afterMoveAnalysis.evaluation}, loss=${centipawnLoss}cp, wcl=${winProbabilityLoss.toFixed(2)}, severity=${mistakeSeverity}`
+            centipawnLoss = Math.max(
+              0,
+              bestEval + afterMoveAnalysis.evaluation
             );
+            const playerEvalFromMove = -afterMoveAnalysis.evaluation;
+            winProbabilityLoss = Math.max(
+              0,
+              AnalysisService.cpToWinProbability(bestEval) -
+                AnalysisService.cpToWinProbability(playerEvalFromMove)
+            );
+            mistakeSeverity = this.classifyMoveByLoss(centipawnLoss);
           }
 
-          // If we haven't applied the move yet (because it was in top 3), apply it now
-          if (playerEval !== undefined) {
-            chess.move(move.san);
-          }
-
-          // Store analysis in database
-          await prisma.analysis.create({
-            data: {
-              gameId,
-              positionFen: currentFen,
-              moveNumber: moveIndex,
-              playerMove: move.san,
-              stockfishEvaluation: isWhiteMove ? bestEval : -bestEval,
-              bestMove: analysis.bestMove,
-              bestLine: analysis.bestLine.join(" "),
-              analysisDepth: depth,
-              mistakeSeverity,
-              centipawnLoss,
-              winProbabilityLoss,
-              timeSpentMs: analysis.timeSpent,
-            },
-          });
-
-          // Add to results
-          analysisResults.push({
-            moveNumber: moveIndex,
-            playerMove: move.san,
-            evaluation: isWhiteMove ? bestEval : -bestEval,
+          results.set(pos.moveIndex, {
+            moveNumber: pos.moveIndex,
+            playerMove: pos.move.san,
+            evaluation: pos.isWhiteMove ? bestEval : -bestEval,
             bestMove: analysis.bestMove,
             mistakeSeverity,
             centipawnLoss,
             winProbabilityLoss,
             analysisDepth: depth,
-            positionFen: currentFen,
+            positionFen: pos.fenBefore,
             bestLine: analysis.bestLine.join(" "),
           });
 
+          completedCount++;
+
+          const percentage = Math.round(
+            (completedCount / totalToAnalyze) * 100
+          );
+          onProgress?.({
+            current: completedCount,
+            total: totalToAnalyze,
+            percentage,
+            status: "analyzing",
+            message: `Analyzed ${completedCount} of ${totalToAnalyze} moves (move ${pos.moveIndex}: ${pos.move.san})`,
+          });
+
           console.log(
-            `✅ Move ${moveIndex} analyzed: ${move.san} (best: ${analysis.bestMove}, loss: ${centipawnLoss}cp, severity: ${mistakeSeverity})`
+            `✅ Move ${pos.moveIndex} analyzed: ${pos.move.san} (best: ${analysis.bestMove}, loss: ${centipawnLoss}cp, severity: ${mistakeSeverity})`
           );
         } catch (error) {
-          console.error(`❌ Error analyzing move ${moveIndex}:`, error);
-
-          // Still apply the move to maintain position and continue
-          try {
-            chess.move(move.san);
-          } catch (moveError) {
-            console.error(
-              `❌ Failed to apply move after analysis error: ${move.san}`,
-              moveError
-            );
-            break; // If we can't apply the move, we can't continue
-          }
-
-          // Continue with next move instead of stopping entire analysis
-          continue;
+          console.error(
+            `❌ Error analyzing move ${pos.moveIndex}:`,
+            error
+          );
+          // Skip failed moves — don't block the rest
+          completedCount++;
         }
+      };
+
+      // Run with bounded concurrency matching batch workers available
+      const concurrency = poolStats.batchWorkers;
+      await AnalysisService.runWithConcurrency(
+        finalPositions.map((pos) => () => analyzeOneMove(pos)),
+        concurrency
+      );
+
+      // ── PHASE 3: Persist results and compute statistics ──
+      const sortedResults = finalPositions
+        .map((pos) => results.get(pos.moveIndex))
+        .filter((r): r is AnalysisDetail => r !== undefined);
+
+      // Bulk insert all analysis records
+      if (sortedResults.length > 0) {
+        await prisma.analysis.createMany({
+          data: sortedResults.map((r) => ({
+            gameId,
+            positionFen: r.positionFen!,
+            moveNumber: r.moveNumber,
+            playerMove: r.playerMove,
+            stockfishEvaluation: r.evaluation,
+            bestMove: r.bestMove,
+            bestLine: r.bestLine || null,
+            analysisDepth: depth,
+            mistakeSeverity: r.mistakeSeverity || null,
+            centipawnLoss: r.centipawnLoss ?? null,
+            winProbabilityLoss: r.winProbabilityLoss ?? null,
+            timeSpentMs: null,
+          })),
+        });
       }
 
       // Calculate final statistics
       const gameAnalysis = this.calculateGameStatistics(
         gameId,
-        analysisResults
+        sortedResults
       );
 
       onProgress?.({
-        current: finalMovesToAnalyze.length,
-        total: finalMovesToAnalyze.length,
+        current: totalToAnalyze,
+        total: totalToAnalyze,
         percentage: 100,
         status: "complete",
-        message: `Analysis complete! Analyzed ${analysisResults.length} moves`,
+        message: `Analysis complete! Analyzed ${sortedResults.length} moves`,
       });
 
       console.log(
-        `🎉 Game analysis complete! Analyzed ${analysisResults.length} moves`
+        `🎉 Game analysis complete! Analyzed ${sortedResults.length} moves`
       );
       return gameAnalysis;
     } catch (error) {
@@ -363,24 +346,42 @@ export class AnalysisService {
     }
   }
 
+  /**
+   * Run async task factories with bounded concurrency.
+   * At most `concurrency` tasks execute simultaneously.
+   */
+  private static async runWithConcurrency(
+    taskFactories: Array<() => Promise<void>>,
+    concurrency: number
+  ): Promise<void> {
+    const executing = new Set<Promise<void>>();
+
+    for (const factory of taskFactories) {
+      const p = factory().then(() => {
+        executing.delete(p);
+      });
+      executing.add(p);
+
+      if (executing.size >= concurrency) {
+        await Promise.race(executing);
+      }
+    }
+
+    await Promise.all(executing);
+  }
+
   private async analyzePositionWithRetry(
-    stockfish: any,
+    engine: { analyzePosition: (fen: string, options: { depth?: number; multiPV?: number }) => Promise<PositionAnalysis> },
     fen: string,
     depth: number,
     maxRetries: number = 3,
     multiPV: number = 1
-  ): Promise<any> {
+  ): Promise<PositionAnalysis> {
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(
-          `🔄 Analysis attempt ${attempt}/${maxRetries} for position: ${
-            fen.split(" ")[0]
-          } (MultiPV=${multiPV})`
-        );
-
-        const result = await stockfish.analyzePosition(fen, { depth, multiPV });
+        const result = await engine.analyzePosition(fen, { depth, multiPV });
 
         if (!result) {
           throw new Error("Analysis returned null result");
@@ -390,7 +391,6 @@ export class AnalysisService {
           throw new Error("Analysis returned no best move");
         }
 
-        // Validate the result has required properties
         if (typeof result.evaluation !== "number") {
           throw new Error("Analysis returned invalid evaluation");
         }
@@ -408,9 +408,7 @@ export class AnalysisService {
         );
 
         if (attempt < maxRetries) {
-          // Wait before retry - exponential backoff
-          const waitTime = Math.pow(2, attempt) * 500; // 500ms, 1s, 2s
-          console.log(`⏳ Waiting ${waitTime}ms before retry...`);
+          const waitTime = Math.pow(2, attempt) * 500;
           await new Promise((resolve) => setTimeout(resolve, waitTime));
         }
       }

@@ -42,6 +42,11 @@ services:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/chess_analyzer
       - REDIS_URL=redis://redis:6379
       - STOCKFISH_PATH=/usr/local/bin/stockfish  # Updated path for latest Stockfish
+      # Stockfish worker pool configuration
+      - STOCKFISH_POOL_SIZE=4           # Total Stockfish worker processes
+      - STOCKFISH_RESERVED_LIVE=1       # Workers reserved for interactive analysis
+      - STOCKFISH_THREADS_PER_WORKER=1  # UCI threads per worker (1 maximizes parallelism)
+      - STOCKFISH_HASH_PER_WORKER=64    # Hash table MB per worker
     volumes:
       - ./backend:/app
       - /app/node_modules
